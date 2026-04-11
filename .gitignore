@@ -20,7 +20,10 @@ logs/
 
 # Audio/data
 data/raw/
-data/processed/
+# Keep manifests visible/trackable; ignore heavy processed artifacts
+data/processed/features/
+data/processed/**/*.npy
+data/processed/**/*.npz
 *.wav
 *.flac
 
