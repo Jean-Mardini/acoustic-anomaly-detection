@@ -1,4 +1,14 @@
+numpy
+pandas
+librosa
+torch
+scikit-learn
+tqdm
 fastapi
+uvicorn
+python-multipart
+fastapi
+python-multipart
 uvicorn[standard]
 numpy
 pandas
