@@ -1,45 +1,37 @@
+# Raw / heavy data (never commit)
+data/raw/
+
+# Common unpacked dataset folders (if present)
+**/unpacked/
+
+# Audio binaries (keep manifests CSVs; ignore actual waveforms)
+*.wav
+*.flac
+*.ogg
+*.mp3
+
 # Python
-__pycache__/
-*.py[cod]
-*.pyo
-*.pyd
-.Python
 .venv/
 venv/
 env/
-*.egg-info/
+__pycache__/
+*.py[cod]
 .pytest_cache/
+*.egg-info/
 
-# ML artifacts and logs
+# ML artifacts
 artifacts/
 checkpoints/
-logs/
 *.pt
 *.pth
 *.onnx
+*.ckpt
 
-# Audio/data
-data/raw/
-# Keep manifests visible/trackable; ignore heavy processed artifacts
-data/processed/features/
-data/processed/**/*.npy
-data/processed/**/*.npz
-*.wav
-*.flac
-
-# Environment and secrets
-.env
-.env.*
-!.env.example
-
-# OS / Editor
+# OS / editor
 .DS_Store
 Thumbs.db
-.vscode/
 .idea/
+.vscode/
 
-# Frontend
-frontend/node_modules/
-frontend/.next/
-frontend/out/
-frontend/dist/
+# Jupyter
+.ipynb_checkpoints/
