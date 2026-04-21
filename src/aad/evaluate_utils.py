@@ -10,7 +10,7 @@ from tqdm import tqdm
 
 from .config import AudioConfig, FeatureConfig, WindowConfig
 from .dataset import FileRecord
-from .model import ConvAutoencoder
+from .model import ConvAutoencoder, TransformerAutoencoder
 from .preprocess import load_audio, per_file_zscore, waveform_to_log_mel, window_spectrogram, zscore
 
 
@@ -24,9 +24,13 @@ def partial_auc_roc(y_true: np.ndarray, y_score: np.ndarray, max_fpr: float = 0.
     return float(area / max_fpr)
 
 
-def load_bundle(checkpoint: Path, device: torch.device) -> tuple[ConvAutoencoder, dict]:
+def load_bundle(checkpoint: Path, device: torch.device) -> tuple:
     ckpt = torch.load(checkpoint, map_location="cpu")
-    model = ConvAutoencoder(**ckpt["model_config"])
+    model_type = ckpt.get("model_type", "conv")
+    if model_type == "transformer":
+        model = TransformerAutoencoder(**ckpt["model_config"])
+    else:
+        model = ConvAutoencoder(**ckpt["model_config"])
     model.load_state_dict(ckpt["model_state"])
     model.to(device).eval()
     return model, ckpt

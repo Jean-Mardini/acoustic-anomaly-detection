@@ -18,7 +18,7 @@ if str(SRC) not in sys.path:
 
 from aad.config import AudioConfig, FeatureConfig, TrainConfig, WindowConfig, to_dict
 from aad.dataset import CachedWindowDataset, WindowDataset, collect_file_records
-from aad.model import ConvAutoencoder
+from aad.model import ConvAutoencoder, TransformerAutoencoder
 from aad.preprocess import compute_global_norm_stats
 
 
@@ -65,6 +65,12 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         default=False,
         help="Normalize each spectrogram to its own mean/std instead of global stats.",
+    )
+    p.add_argument(
+        "--model",
+        choices=["conv", "transformer"],
+        default="conv",
+        help="Model architecture: conv (ConvAutoencoder) or transformer (TransformerAutoencoder).",
     )
     return p.parse_args()
 
@@ -158,7 +164,18 @@ def main() -> None:
     train_loader = DataLoader(train_ds, batch_size=train_cfg.batch_size, shuffle=True, num_workers=0)
     val_loader = DataLoader(val_ds, batch_size=train_cfg.batch_size, shuffle=False, num_workers=0)
 
-    model = ConvAutoencoder(latent_dim=train_cfg.latent_dim, base_channels=64, num_memory_slots=args.num_memory_slots).to(device)
+    if args.model == "transformer":
+        model = TransformerAutoencoder(
+            latent_dim=train_cfg.latent_dim,
+            num_memory_slots=args.num_memory_slots,
+        ).to(device)
+        model_config = {
+            "latent_dim": train_cfg.latent_dim,
+            "num_memory_slots": args.num_memory_slots,
+        }
+    else:
+        model = ConvAutoencoder(latent_dim=train_cfg.latent_dim, base_channels=64, num_memory_slots=args.num_memory_slots).to(device)
+        model_config = {"latent_dim": train_cfg.latent_dim, "base_channels": 64, "num_memory_slots": args.num_memory_slots}
     opt = torch.optim.Adam(model.parameters(), lr=train_cfg.lr)
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(opt, T_max=train_cfg.epochs, eta_min=1e-6)
     loss_fn = nn.MSELoss()
@@ -222,7 +239,8 @@ def main() -> None:
     torch.save(
         {
             "model_state": model.state_dict(),
-            "model_config": {"latent_dim": train_cfg.latent_dim, "base_channels": 64, "num_memory_slots": args.num_memory_slots},
+            "model_type": args.model,
+            "model_config": model_config,
             "norm": {"mean": mean, "std": std},
             "audio_config": to_dict(audio_cfg),
             "feature_config": to_dict(feature_cfg),
