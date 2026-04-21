@@ -17,7 +17,7 @@ if str(SRC) not in sys.path:
 
 from aad.config import AudioConfig, FeatureConfig, WindowConfig
 from aad.dataset import collect_file_records
-from aad.evaluate_utils import collect_latents, fit_mahalanobis, load_bundle, mahalanobis_score_file, partial_auc_roc
+from aad.evaluate_utils import collect_latents, fit_gmm, fit_mahalanobis, gmm_score_file, load_bundle, mahalanobis_score_file, partial_auc_roc
 
 
 def parse_args() -> argparse.Namespace:
@@ -34,6 +34,8 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--percentile", type=float, default=99.0)
     p.add_argument("--max-fpr", type=float, default=0.1)
     p.add_argument("--out-json", type=Path, default=None)
+    p.add_argument("--scorer", choices=["mahalanobis", "gmm"], default="mahalanobis")
+    p.add_argument("--gmm-components", type=int, default=10)
     return p.parse_args()
 
 
@@ -94,16 +96,28 @@ def main() -> None:
         if len(latents) < 10:
             result["per_machine"][mach] = {"note": "Too few valid calibration latents."}
             continue
-        mu, inv_cov = fit_mahalanobis(latents)
 
-        # Calibration scores (Mahalanobis) to set threshold
-        cal_scores: list[float] = []
-        for rec in tqdm(cal_files, desc=f"Calibrate {mach}", unit="file", leave=False):
-            sc = mahalanobis_score_file(
+        if args.scorer == "gmm":
+            scorer = fit_gmm(latents, n_components=args.gmm_components)
+        else:
+            mu, inv_cov = fit_mahalanobis(latents)
+
+        def score_rec(rec):
+            if args.scorer == "gmm":
+                return gmm_score_file(
+                    model, rec,
+                    audio_cfg=audio_cfg, feature_cfg=feature_cfg, window_cfg=window_cfg,
+                    mean=mean, std=std, device=device, gmm=scorer, per_file_norm=per_file_norm,
+                )
+            return mahalanobis_score_file(
                 model, rec,
                 audio_cfg=audio_cfg, feature_cfg=feature_cfg, window_cfg=window_cfg,
                 mean=mean, std=std, device=device, mu=mu, inv_cov=inv_cov, per_file_norm=per_file_norm,
             )
+
+        cal_scores: list[float] = []
+        for rec in tqdm(cal_files, desc=f"Calibrate {mach}", unit="file", leave=False):
+            sc = score_rec(rec)
             if np.isfinite(sc):
                 cal_scores.append(sc)
         if len(cal_scores) < 5:
@@ -114,11 +128,7 @@ def main() -> None:
         y_true: list[int] = []
         y_score: list[float] = []
         for rec in tqdm(eval_files, desc=f"Evaluate {mach}", unit="file", leave=False):
-            sc = mahalanobis_score_file(
-                model, rec,
-                audio_cfg=audio_cfg, feature_cfg=feature_cfg, window_cfg=window_cfg,
-                mean=mean, std=std, device=device, mu=mu, inv_cov=inv_cov, per_file_norm=per_file_norm,
-            )
+            sc = score_rec(rec)
             if not np.isfinite(sc):
                 continue
             y_true.append(1 if rec.label == "anomaly" else 0)
