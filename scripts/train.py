@@ -72,6 +72,12 @@ def parse_args() -> argparse.Namespace:
         default="conv",
         help="Model architecture: conv (ConvAutoencoder) or transformer (TransformerAutoencoder).",
     )
+    p.add_argument(
+        "--resume",
+        action="store_true",
+        default=False,
+        help="Resume training from resume_checkpoint.pt in the run directory.",
+    )
     return p.parse_args()
 
 
@@ -187,10 +193,23 @@ def main() -> None:
     best_val = float("inf")
     patience = 0
     best_state = None
+    start_epoch = 1
+    resume_path = out_dir / "resume_checkpoint.pt"
+
+    if args.resume and resume_path.exists():
+        resume = torch.load(resume_path, map_location=device)
+        model.load_state_dict(resume["model_state"])
+        opt.load_state_dict(resume["opt_state"])
+        scheduler.load_state_dict(resume["scheduler_state"])
+        best_val = resume["best_val"]
+        patience = resume["patience"]
+        best_state = resume["best_state"]
+        start_epoch = resume["epoch"] + 1
+        print(f"Resumed from epoch {resume['epoch']}  best_val={best_val:.6f}  patience={patience}")
 
     print(f"Train files={len(train_records)} val files={len(val_records)}")
     print(f"Train windows={len(train_ds)} val windows={len(val_ds)} device={device}")
-    for epoch in range(1, train_cfg.epochs + 1):
+    for epoch in range(start_epoch, train_cfg.epochs + 1):
         model.train()
         tr_loss = 0.0
         tr_n = 0
@@ -232,6 +251,16 @@ def main() -> None:
             if patience >= train_cfg.early_stopping:
                 print("Early stopping.")
                 break
+
+        torch.save({
+            "epoch": epoch,
+            "model_state": model.state_dict(),
+            "opt_state": opt.state_dict(),
+            "scheduler_state": scheduler.state_dict(),
+            "best_val": best_val,
+            "patience": patience,
+            "best_state": best_state,
+        }, resume_path)
 
     if best_state is not None:
         model.load_state_dict(best_state)
