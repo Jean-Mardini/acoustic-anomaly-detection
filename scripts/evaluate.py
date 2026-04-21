@@ -34,7 +34,7 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--percentile", type=float, default=99.0)
     p.add_argument("--max-fpr", type=float, default=0.1)
     p.add_argument("--out-json", type=Path, default=None)
-    p.add_argument("--scorer", choices=["mahalanobis", "gmm"], default="mahalanobis")
+    p.add_argument("--scorer", choices=["mahalanobis", "gmm", "domain_gmm", "tta_gmm"], default="mahalanobis")
     p.add_argument("--gmm-components", type=int, default=10)
     return p.parse_args()
 
@@ -86,34 +86,48 @@ def main() -> None:
         cal_files = [r for r in cal_normals if r.machine_type == mach]
         eval_files = [r for r in eval_records if r.machine_type == mach]
 
-        # Fit Mahalanobis on latents from calibration normal files
+        shared = dict(audio_cfg=audio_cfg, feature_cfg=feature_cfg, window_cfg=window_cfg,
+                      mean=mean, std=std, device=device, per_file_norm=per_file_norm)
+
         print(f"[{mach}] Collecting latents from {len(cal_files)} calibration files...")
-        latents = collect_latents(
-            model, cal_files,
-            audio_cfg=audio_cfg, feature_cfg=feature_cfg, window_cfg=window_cfg,
-            mean=mean, std=std, device=device, per_file_norm=per_file_norm,
-        )
+        latents = collect_latents(model, cal_files, **shared)
         if len(latents) < 10:
             result["per_machine"][mach] = {"note": "Too few valid calibration latents."}
             continue
 
         if args.scorer == "gmm":
             scorer = fit_gmm(latents, n_components=args.gmm_components)
+
+        elif args.scorer == "domain_gmm":
+            # Separate GMM per domain, score = min(score_source, score_target)
+            source_files = [r for r in cal_files if r.domain == "source"]
+            target_files = [r for r in cal_files if r.domain == "target"]
+            print(f"[{mach}] domain_gmm: {len(source_files)} source / {len(target_files)} target cal files")
+            latents_src = collect_latents(model, source_files, **shared) if source_files else latents
+            n_tgt = min(args.gmm_components, max(1, len(target_files) * 4))
+            latents_tgt = collect_latents(model, target_files, **shared) if target_files else latents
+            gmm_src = fit_gmm(latents_src, n_components=args.gmm_components)
+            gmm_tgt = fit_gmm(latents_tgt, n_components=n_tgt)
+
+        elif args.scorer == "tta_gmm":
+            # Test-time adaptation: fit GMM on all test files (no labels used)
+            print(f"[{mach}] tta_gmm: fitting GMM on {len(eval_files)} test files...")
+            test_latents = collect_latents(model, eval_files, **shared)
+            scorer = fit_gmm(test_latents, n_components=args.gmm_components)
+
         else:
             mu, inv_cov = fit_mahalanobis(latents)
 
-        def score_rec(rec):
-            if args.scorer == "gmm":
-                return gmm_score_file(
-                    model, rec,
-                    audio_cfg=audio_cfg, feature_cfg=feature_cfg, window_cfg=window_cfg,
-                    mean=mean, std=std, device=device, gmm=scorer, per_file_norm=per_file_norm,
-                )
-            return mahalanobis_score_file(
-                model, rec,
-                audio_cfg=audio_cfg, feature_cfg=feature_cfg, window_cfg=window_cfg,
-                mean=mean, std=std, device=device, mu=mu, inv_cov=inv_cov, per_file_norm=per_file_norm,
-            )
+        def score_rec(rec, _scorer=args.scorer):
+            if _scorer == "gmm" or _scorer == "tta_gmm":
+                return gmm_score_file(model, rec, **shared, gmm=scorer)
+            if _scorer == "domain_gmm":
+                s_src = gmm_score_file(model, rec, **shared, gmm=gmm_src)
+                s_tgt = gmm_score_file(model, rec, **shared, gmm=gmm_tgt)
+                if np.isfinite(s_src) and np.isfinite(s_tgt):
+                    return min(s_src, s_tgt)
+                return s_src if np.isfinite(s_src) else s_tgt
+            return mahalanobis_score_file(model, rec, **shared, mu=mu, inv_cov=inv_cov)
 
         cal_scores: list[float] = []
         for rec in tqdm(cal_files, desc=f"Calibrate {mach}", unit="file", leave=False):

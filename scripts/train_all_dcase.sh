@@ -38,12 +38,40 @@ for MACHINE in "${MACHINE_TYPES[@]}"; do
         --epochs 60 \
         --run-name "$RUN_NAME"
 
-    # Step 3: Evaluate
-    echo "[$MACHINE] Evaluating..."
+    echo "[$MACHINE] Evaluating with Mahalanobis..."
     python3 scripts/evaluate.py \
         --checkpoint "artifacts/runs/${RUN_NAME}/best_model.pt" \
         --manifests "$MANIFEST" \
-        --machine-types "$MACHINE"
+        --machine-types "$MACHINE" \
+        --scorer mahalanobis \
+        --out-json "artifacts/runs/${RUN_NAME}/evaluation_mahalanobis.json"
+
+    echo "[$MACHINE] Evaluating with GMM..."
+    python3 scripts/evaluate.py \
+        --checkpoint "artifacts/runs/${RUN_NAME}/best_model.pt" \
+        --manifests "$MANIFEST" \
+        --machine-types "$MACHINE" \
+        --scorer gmm \
+        --gmm-components 10 \
+        --out-json "artifacts/runs/${RUN_NAME}/evaluation_gmm.json"
+
+    echo "[$MACHINE] Evaluating with Domain GMM..."
+    python3 scripts/evaluate.py \
+        --checkpoint "artifacts/runs/${RUN_NAME}/best_model.pt" \
+        --manifests "$MANIFEST" \
+        --machine-types "$MACHINE" \
+        --scorer domain_gmm \
+        --gmm-components 10 \
+        --out-json "artifacts/runs/${RUN_NAME}/evaluation_domain_gmm.json"
+
+    echo "[$MACHINE] Evaluating with TTA GMM..."
+    python3 scripts/evaluate.py \
+        --checkpoint "artifacts/runs/${RUN_NAME}/best_model.pt" \
+        --manifests "$MANIFEST" \
+        --machine-types "$MACHINE" \
+        --scorer tta_gmm \
+        --gmm-components 10 \
+        --out-json "artifacts/runs/${RUN_NAME}/evaluation_tta_gmm.json"
 
     echo "[$MACHINE] Done at: $(date)"
     echo "[$MACHINE] Results: artifacts/runs/${RUN_NAME}/evaluation.json"

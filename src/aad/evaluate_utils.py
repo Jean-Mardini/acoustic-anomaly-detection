@@ -69,6 +69,7 @@ def collect_latents(
 
 
 def fit_gmm(latents: np.ndarray, n_components: int = 10) -> GaussianMixture:
+    n_components = min(n_components, max(1, len(latents) // 2))
     gmm = GaussianMixture(n_components=n_components, covariance_type="diag", max_iter=200, random_state=42)
     gmm.fit(latents)
     return gmm

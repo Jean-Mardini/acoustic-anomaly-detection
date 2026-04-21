@@ -54,6 +54,24 @@ for MACHINE in "${MACHINE_TYPES[@]}"; do
         --gmm-components 10 \
         --out-json "artifacts/runs/${RUN_NAME}/evaluation_gmm.json"
 
+    echo "[$MACHINE] Evaluating with Domain GMM..."
+    python3 scripts/evaluate.py \
+        --checkpoint "artifacts/runs/${RUN_NAME}/best_model.pt" \
+        --manifests "$MANIFEST" \
+        --machine-types "$MACHINE" \
+        --scorer domain_gmm \
+        --gmm-components 10 \
+        --out-json "artifacts/runs/${RUN_NAME}/evaluation_domain_gmm.json"
+
+    echo "[$MACHINE] Evaluating with TTA GMM..."
+    python3 scripts/evaluate.py \
+        --checkpoint "artifacts/runs/${RUN_NAME}/best_model.pt" \
+        --manifests "$MANIFEST" \
+        --machine-types "$MACHINE" \
+        --scorer tta_gmm \
+        --gmm-components 10 \
+        --out-json "artifacts/runs/${RUN_NAME}/evaluation_tta_gmm.json"
+
     echo "[$MACHINE] Done at: $(date)"
     echo ""
 done
