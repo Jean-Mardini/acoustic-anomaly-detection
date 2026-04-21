@@ -24,8 +24,13 @@ for MACHINE in "${MACHINE_TYPES[@]}"; do
         --machine-types "$MACHINE" \
         --force
 
-    NORM_STATS="data/processed/features/norm_stats_${MACHINE}.json"
+    NORM_STATS="data/processed/features/norm_stats_mimii_${MACHINE}.json"
     RUN_NAME="mimii_${MACHINE}_v1"
+
+    # Rename norm stats to mimii-specific path to avoid overwriting dcase stats
+    if [ -f "data/processed/features/norm_stats_${MACHINE}.json" ]; then
+        mv "data/processed/features/norm_stats_${MACHINE}.json" "$NORM_STATS"
+    fi
 
     echo "[$MACHINE] Training..."
     python3 scripts/train.py \
