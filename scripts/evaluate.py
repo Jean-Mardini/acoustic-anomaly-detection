@@ -17,7 +17,7 @@ if str(SRC) not in sys.path:
 
 from aad.config import AudioConfig, FeatureConfig, WindowConfig
 from aad.dataset import collect_file_records
-from aad.evaluate_utils import load_bundle, partial_auc_roc, score_file
+from aad.evaluate_utils import collect_latents, fit_mahalanobis, load_bundle, mahalanobis_score_file, partial_auc_roc
 
 
 def parse_args() -> argparse.Namespace:
@@ -49,6 +49,7 @@ def main() -> None:
     window_cfg = WindowConfig(**ckpt["window_config"])
     mean = float(ckpt["norm"]["mean"])
     std = float(ckpt["norm"]["std"])
+    per_file_norm = bool(ckpt.get("per_file_norm", False))
     machine_types = set(args.machine_types) if args.machine_types else None
     manifests = [Path(p) for p in args.manifests]
 
@@ -61,7 +62,7 @@ def main() -> None:
     eval_records = collect_file_records(
         manifests,
         split=args.eval_split,
-        labels={"normal", "abnormal"},
+        labels={"normal", "anomaly"},
         machine_types=machine_types,
     )
     if not cal_normals:
@@ -82,17 +83,26 @@ def main() -> None:
     for mach in machines:
         cal_files = [r for r in cal_normals if r.machine_type == mach]
         eval_files = [r for r in eval_records if r.machine_type == mach]
+
+        # Fit Mahalanobis on latents from calibration normal files
+        print(f"[{mach}] Collecting latents from {len(cal_files)} calibration files...")
+        latents = collect_latents(
+            model, cal_files,
+            audio_cfg=audio_cfg, feature_cfg=feature_cfg, window_cfg=window_cfg,
+            mean=mean, std=std, device=device, per_file_norm=per_file_norm,
+        )
+        if len(latents) < 10:
+            result["per_machine"][mach] = {"note": "Too few valid calibration latents."}
+            continue
+        mu, inv_cov = fit_mahalanobis(latents)
+
+        # Calibration scores (Mahalanobis) to set threshold
         cal_scores: list[float] = []
         for rec in tqdm(cal_files, desc=f"Calibrate {mach}", unit="file", leave=False):
-            sc = score_file(
-                model,
-                rec,
-                audio_cfg=audio_cfg,
-                feature_cfg=feature_cfg,
-                window_cfg=window_cfg,
-                mean=mean,
-                std=std,
-                device=device,
+            sc = mahalanobis_score_file(
+                model, rec,
+                audio_cfg=audio_cfg, feature_cfg=feature_cfg, window_cfg=window_cfg,
+                mean=mean, std=std, device=device, mu=mu, inv_cov=inv_cov, per_file_norm=per_file_norm,
             )
             if np.isfinite(sc):
                 cal_scores.append(sc)
@@ -104,19 +114,14 @@ def main() -> None:
         y_true: list[int] = []
         y_score: list[float] = []
         for rec in tqdm(eval_files, desc=f"Evaluate {mach}", unit="file", leave=False):
-            sc = score_file(
-                model,
-                rec,
-                audio_cfg=audio_cfg,
-                feature_cfg=feature_cfg,
-                window_cfg=window_cfg,
-                mean=mean,
-                std=std,
-                device=device,
+            sc = mahalanobis_score_file(
+                model, rec,
+                audio_cfg=audio_cfg, feature_cfg=feature_cfg, window_cfg=window_cfg,
+                mean=mean, std=std, device=device, mu=mu, inv_cov=inv_cov, per_file_norm=per_file_norm,
             )
             if not np.isfinite(sc):
                 continue
-            y_true.append(1 if rec.label == "abnormal" else 0)
+            y_true.append(1 if rec.label == "anomaly" else 0)
             y_score.append(sc)
 
         if len(y_true) == 0 or len(set(y_true)) < 2:

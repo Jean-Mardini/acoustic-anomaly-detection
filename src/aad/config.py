@@ -29,11 +29,11 @@ class WindowConfig:
 
 @dataclass(frozen=True)
 class TrainConfig:
-    batch_size: int = 32
+    batch_size: int = 64
     lr: float = 1e-3
-    epochs: int = 50
-    early_stopping: int = 8
-    latent_dim: int = 256
+    epochs: int = 100
+    early_stopping: int = 15
+    latent_dim: int = 64
     max_files: int = 0
     val_fraction: float = 0.1
     seed: int = 42

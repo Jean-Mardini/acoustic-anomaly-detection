@@ -10,7 +10,7 @@ from torch.utils.data import Dataset
 from tqdm import tqdm
 
 from .config import AudioConfig, FeatureConfig, WindowConfig
-from .preprocess import load_audio, waveform_to_log_mel, window_spectrogram, zscore
+from .preprocess import load_audio, per_file_zscore, waveform_to_log_mel, window_spectrogram, zscore
 
 
 @dataclass(frozen=True)
@@ -22,6 +22,7 @@ class FileRecord:
     split: str
     label: str
     dataset_name: str
+    feature_path: Path | None = None
 
 
 def read_manifest_rows(manifest_paths: list[Path]) -> pd.DataFrame:
@@ -59,7 +60,12 @@ def collect_file_records(
     out: list[FileRecord] = []
     for row in sub.itertuples(index=False):
         p = Path(str(row.audio_path))
-        if not p.is_file():
+        fp_raw = getattr(row, "feature_path", None)
+        fp = Path(str(fp_raw)) if fp_raw and str(fp_raw) not in ("", "nan") else None
+        if fp is not None:
+            if not fp.is_file():
+                continue
+        elif not p.is_file():
             continue
         out.append(
             FileRecord(
@@ -70,6 +76,7 @@ def collect_file_records(
                 split=str(row.split),
                 label=str(row.label),
                 dataset_name=str(row.dataset_name),
+                feature_path=fp,
             )
         )
     return out
@@ -92,6 +99,50 @@ class WindowDataset(Dataset):
                 wav = load_audio(rec.audio_path, audio_cfg)
                 mel = waveform_to_log_mel(wav, feature_cfg, sample_rate=audio_cfg.sample_rate)
                 mel = zscore(mel, mean=mean, std=std)
+                wins = window_spectrogram(mel, window_cfg)
+            except Exception:
+                continue
+            for idx, w in enumerate(wins):
+                self._items.append((w, rec, idx))
+
+    def __len__(self) -> int:
+        return len(self._items)
+
+    def __getitem__(self, idx: int) -> tuple[torch.Tensor, dict]:
+        w, rec, win_idx = self._items[idx]
+        x = torch.from_numpy(w).unsqueeze(0)  # [1, mel, time]
+        meta = {
+            "audio_path": str(rec.audio_path),
+            "machine_type": rec.machine_type,
+            "section": rec.section,
+            "domain": rec.domain,
+            "split": rec.split,
+            "label": rec.label,
+            "dataset_name": rec.dataset_name,
+            "window_index": win_idx,
+        }
+        return x, meta
+
+
+class CachedWindowDataset(Dataset):
+    """Loads pre-extracted .npy log-mel features instead of raw WAVs."""
+
+    def __init__(
+        self,
+        records: list[FileRecord],
+        *,
+        window_cfg: WindowConfig,
+        mean: float,
+        std: float,
+        per_file_norm: bool = False,
+    ) -> None:
+        self._items: list[tuple[np.ndarray, FileRecord, int]] = []
+        for rec in tqdm(records, desc="Build windows (cached)", unit="file"):
+            if rec.feature_path is None or not rec.feature_path.is_file():
+                continue
+            try:
+                mel = np.load(rec.feature_path).astype(np.float32)
+                mel = per_file_zscore(mel) if per_file_norm else zscore(mel, mean=mean, std=std)
                 wins = window_spectrogram(mel, window_cfg)
             except Exception:
                 continue

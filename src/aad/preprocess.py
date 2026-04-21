@@ -79,6 +79,13 @@ def zscore(feat: np.ndarray, mean: float, std: float, eps: float = 1e-6) -> np.n
     return np.ascontiguousarray(out, dtype=np.float32)
 
 
+def per_file_zscore(feat: np.ndarray, eps: float = 1e-6) -> np.ndarray:
+    mean = float(feat.mean())
+    std = float(feat.std())
+    out = (feat - mean) / (std + eps)
+    return np.ascontiguousarray(out, dtype=np.float32)
+
+
 def window_spectrogram(
     feat: np.ndarray,
     window_cfg: WindowConfig,
