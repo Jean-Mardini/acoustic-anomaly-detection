@@ -214,6 +214,8 @@ def score_file(
     for w in windows:
         x = torch.from_numpy(w).unsqueeze(0).unsqueeze(0).to(device)
         out = model(x)
+        if isinstance(out, tuple):
+            out = out[0]
         mse = torch.mean((out - x) ** 2).item()
         scores.append(float(mse))
     return float(np.mean(scores))
