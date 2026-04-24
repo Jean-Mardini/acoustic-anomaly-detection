@@ -25,6 +25,7 @@
 | Marc Khattar | Master in Artificial Intelligence — ESIB, USJ |
 | Christy Tannoury | Master in Artificial Intelligence — ESIB, USJ |
 | Angela Nabhan | Master in Artificial Intelligence — ESIB, USJ |
+| Charbel Mezraani | Master in Artificial Intelligence — ESIB, USJ |
 
 ---
 
