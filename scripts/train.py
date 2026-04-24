@@ -45,6 +45,7 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--num-memory-slots", type=int, default=100)
     p.add_argument("--memory-weight", type=float, default=0.002)
     p.add_argument("--entropy-weight", type=float, default=0.0)
+    p.add_argument("--hop-length", type=int, default=None, help="Override FeatureConfig hop_length.")
     p.add_argument("--out-dir", type=Path, default=Path("artifacts/runs"))
     p.add_argument("--run-name", type=str, default="")
     p.add_argument(
@@ -88,7 +89,7 @@ def main() -> None:
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     audio_cfg = AudioConfig()
-    feature_cfg = FeatureConfig()
+    feature_cfg = FeatureConfig() if args.hop_length is None else FeatureConfig(hop_length=args.hop_length)
     window_cfg = WindowConfig()
     train_cfg = TrainConfig(
         batch_size=args.batch_size,

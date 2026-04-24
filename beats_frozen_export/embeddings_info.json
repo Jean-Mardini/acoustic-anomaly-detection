@@ -1,0 +1,58 @@
+{
+  "beats_ckpt": "BEATs_iter3_plus_AS2M.pt",
+  "gmm_components": 32,
+  "embedding_dim": 768,
+  "target_len_samples": 160000,
+  "sample_rate": 16000,
+  "machines": {
+    "ToyCar": {
+      "gmm_path": "gmms/ToyCar.pkl",
+      "n_components": 32,
+      "n_train_embeddings": 1000,
+      "threshold_95": -883.3338061019107,
+      "threshold_99": -668.4050705765785
+    },
+    "ToyTrain": {
+      "gmm_path": "gmms/ToyTrain.pkl",
+      "n_components": 32,
+      "n_train_embeddings": 1000,
+      "threshold_95": -897.8263204497614,
+      "threshold_99": -744.0728939552961
+    },
+    "bearing": {
+      "gmm_path": "gmms/bearing.pkl",
+      "n_components": 32,
+      "n_train_embeddings": 1000,
+      "threshold_95": -789.916563290389,
+      "threshold_99": -676.5047032011785
+    },
+    "fan": {
+      "gmm_path": "gmms/fan.pkl",
+      "n_components": 32,
+      "n_train_embeddings": 1000,
+      "threshold_95": -699.0482526344857,
+      "threshold_99": -531.9804652529002
+    },
+    "gearbox": {
+      "gmm_path": "gmms/gearbox.pkl",
+      "n_components": 32,
+      "n_train_embeddings": 999,
+      "threshold_95": -729.7561098387075,
+      "threshold_99": -541.0709589970887
+    },
+    "slider": {
+      "gmm_path": "gmms/slider.pkl",
+      "n_components": 32,
+      "n_train_embeddings": 1000,
+      "threshold_95": -856.3164195368371,
+      "threshold_99": -739.0224882878434
+    },
+    "valve": {
+      "gmm_path": "gmms/valve.pkl",
+      "n_components": 32,
+      "n_train_embeddings": 1000,
+      "threshold_95": -866.0290271388054,
+      "threshold_99": -735.7714738444243
+    }
+  }
+}

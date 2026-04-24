@@ -17,7 +17,7 @@ if str(SRC) not in sys.path:
 
 from aad.config import AudioConfig, FeatureConfig, WindowConfig
 from aad.dataset import collect_file_records
-from aad.evaluate_utils import collect_latents, fit_gmm, fit_mahalanobis, gmm_score_file, load_bundle, mahalanobis_score_file, partial_auc_roc
+from aad.evaluate_utils import collect_latents, fit_gmm, fit_lof, fit_mahalanobis, gmm_score_file, load_bundle, lof_score_file, mahalanobis_score_file, partial_auc_roc
 
 
 def parse_args() -> argparse.Namespace:
@@ -34,7 +34,7 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--percentile", type=float, default=99.0)
     p.add_argument("--max-fpr", type=float, default=0.1)
     p.add_argument("--out-json", type=Path, default=None)
-    p.add_argument("--scorer", choices=["mahalanobis", "gmm", "domain_gmm", "tta_gmm"], default="mahalanobis")
+    p.add_argument("--scorer", choices=["mahalanobis", "gmm", "domain_gmm", "tta_gmm", "lof"], default="mahalanobis")
     p.add_argument("--gmm-components", type=int, default=10)
     return p.parse_args()
 
@@ -110,16 +110,18 @@ def main() -> None:
             gmm_tgt = fit_gmm(latents_tgt, n_components=n_tgt)
 
         elif args.scorer == "tta_gmm":
-            # Test-time adaptation: fit GMM on all test files (no labels used)
             print(f"[{mach}] tta_gmm: fitting GMM on {len(eval_files)} test files...")
             test_latents = collect_latents(model, eval_files, **shared)
             scorer = fit_gmm(test_latents, n_components=args.gmm_components)
+
+        elif args.scorer == "lof":
+            scorer = fit_lof(latents)
 
         else:
             mu, inv_cov = fit_mahalanobis(latents)
 
         def score_rec(rec, _scorer=args.scorer):
-            if _scorer == "gmm" or _scorer == "tta_gmm":
+            if _scorer in ("gmm", "tta_gmm"):
                 return gmm_score_file(model, rec, **shared, gmm=scorer)
             if _scorer == "domain_gmm":
                 s_src = gmm_score_file(model, rec, **shared, gmm=gmm_src)
@@ -127,6 +129,8 @@ def main() -> None:
                 if np.isfinite(s_src) and np.isfinite(s_tgt):
                     return min(s_src, s_tgt)
                 return s_src if np.isfinite(s_src) else s_tgt
+            if _scorer == "lof":
+                return lof_score_file(model, rec, **shared, lof=scorer)
             return mahalanobis_score_file(model, rec, **shared, mu=mu, inv_cov=inv_cov)
 
         cal_scores: list[float] = []

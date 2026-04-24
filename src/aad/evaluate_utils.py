@@ -6,6 +6,7 @@ import numpy as np
 import torch
 from sklearn.metrics import roc_curve
 from sklearn.mixture import GaussianMixture
+from sklearn.neighbors import LocalOutlierFactor
 from tqdm import tqdm
 
 from .config import AudioConfig, FeatureConfig, WindowConfig
@@ -104,6 +105,46 @@ def gmm_score_file(
         z_hat, _ = model.memory(z)
         z_hat = z_hat.detach().cpu().numpy()
         score = float(-gmm.score_samples(z_hat)[0])  # negative log-likelihood
+        scores.append(score)
+    return float(np.max(scores))
+
+
+def fit_lof(latents: np.ndarray, n_neighbors: int = 20) -> LocalOutlierFactor:
+    lof = LocalOutlierFactor(n_neighbors=min(n_neighbors, len(latents) - 1), novelty=True, contamination=0.1)
+    lof.fit(latents)
+    return lof
+
+
+def lof_score_file(
+    model,
+    rec: FileRecord,
+    *,
+    audio_cfg: AudioConfig,
+    feature_cfg: FeatureConfig,
+    window_cfg: WindowConfig,
+    mean: float,
+    std: float,
+    device: torch.device,
+    lof: LocalOutlierFactor,
+    per_file_norm: bool = False,
+) -> float:
+    try:
+        wav = load_audio(rec.audio_path, audio_cfg)
+        mel = waveform_to_log_mel(wav, feature_cfg, sample_rate=audio_cfg.sample_rate)
+        mel = per_file_zscore(mel) if per_file_norm else zscore(mel, mean=mean, std=std)
+        windows = window_spectrogram(mel, window_cfg)
+    except Exception:
+        return float("nan")
+    if not windows:
+        return float("nan")
+    scores: list[float] = []
+    for w in windows:
+        x = torch.from_numpy(w).unsqueeze(0).unsqueeze(0).to(device)
+        with torch.no_grad():
+            z = model.encode(x)
+            z_hat, _ = model.memory(z)
+        z_hat = z_hat.detach().cpu().numpy()
+        score = float(-lof.score_samples(z_hat)[0])  # negative = more anomalous
         scores.append(score)
     return float(np.max(scores))
 

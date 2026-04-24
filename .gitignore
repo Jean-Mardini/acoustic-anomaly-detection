@@ -24,6 +24,8 @@ __pycache__/
 
 # ML artifacts
 artifacts/
+!artifacts/beats_frozen_export/
+!artifacts/beats_frozen_export/**
 checkpoints/
 *.pt
 *.pth
