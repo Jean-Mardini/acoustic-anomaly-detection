@@ -21,7 +21,10 @@
 
 | Name | Institution |
 |---|---|
-| Charbel Mezraani | Master in Artificial Intelligence — ESIB, USJ |
+| Jean Mardini | Master in Artificial Intelligence — ESIB, USJ |
+| Marc Khattar | Master in Artificial Intelligence — ESIB, USJ |
+| Christy Tannoury | Master in Artificial Intelligence — ESIB, USJ |
+| Angela Nabhan | Master in Artificial Intelligence — ESIB, USJ |
 
 ---
 
