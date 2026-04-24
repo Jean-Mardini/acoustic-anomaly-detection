@@ -1,35 +1,58 @@
 # Acoustic Anomaly Detection
 
-> Unsupervised anomaly detection for industrial machines — benchmarked on **DCASE 2024 Task 2** and **MIMII-DUE**, progressing from a classical autoencoder baseline to the DCASE 2024 winning architecture.
+<div align="center">
+
+![Python](https://img.shields.io/badge/Python-3.12-blue?logo=python)
+![PyTorch](https://img.shields.io/badge/PyTorch-2.x-EE4C2C?logo=pytorch)
+![BEATs](https://img.shields.io/badge/BEATs-AudioSet-orange)
+![DCASE](https://img.shields.io/badge/DCASE-2024_Task_2-green)
+![MIMII](https://img.shields.io/badge/MIMII-DUE-purple)
+![License](https://img.shields.io/badge/License-MIT-yellow)
+
+**An end-to-end unsupervised acoustic anomaly detection pipeline — progressing from a convolutional autoencoder baseline to the DCASE 2024 winning architecture, benchmarked on DCASE 2024 Task 2 and MIMII-DUE.**
+
+[Overview](#overview) · [Results](#results) · [Methods](#methods) · [Installation](#installation) · [Usage](#usage) · [Inference](#inference) · [Structure](#project-structure)
+
+</div>
+
+---
+
+## Authors
+
+| Name | Institution |
+|---|---|
+| Charbel Mezraani | Master in Artificial Intelligence — ESIB, USJ |
 
 ---
 
 ## Overview
 
-This project implements and benchmarks a full progression of acoustic anomaly detection methods, from handcrafted spectrogram features to fine-tuned audio foundation models. All models are trained exclusively on normal machine audio and evaluated by how well they separate normal from anomalous sounds at test time — no anomaly labels are ever seen during training.
+This project implements and benchmarks a full progression of acoustic anomaly detection methods under real-world constraints: unsupervised training on normal audio only, domain shift between source and target recordings, and evaluation across multiple machine types.
+
+The pipeline covers five stages — from classical handcrafted features to fine-tuned audio foundation models — culminating in a reproduction of the DCASE 2024 Task 2 winning system.
 
 ---
 
 ## Results
 
-### DCASE 2024 Task 2 — Development Set (AUC-ROC)
+### DCASE 2024 Task 2 — Development Set (AUC-ROC ↑)
 
 | Model | ToyCar | ToyTrain | Bearing | Fan | Gearbox | Slider | Valve | **Mean** |
 |---|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
 | Convolutional Autoencoder | 0.490 | 0.463 | 0.630 | 0.525 | 0.517 | 0.551 | 0.396 | 0.510 |
 | Transformer Autoencoder | 0.443 | 0.555 | 0.623 | 0.532 | 0.556 | 0.493 | 0.392 | 0.513 |
-| WavLM + GMM | 0.428 | 0.533 | 0.541 | 0.539 | 0.535 | 0.560 | 0.461 | 0.514 |
-| WavLM + Mahalanobis | 0.470 | 0.584 | 0.566 | 0.557 | 0.532 | 0.569 | 0.490 | 0.538 |
-| WavLM + LOF | 0.483 | 0.563 | 0.640 | 0.542 | 0.523 | 0.571 | 0.564 | 0.555 |
-| **BEATs (frozen)** | **0.504** | **0.709** | **0.609** | **0.618** | **0.776** | **0.654** | **0.597** | **0.638** |
-| BEATs + LoRA + MGA + DLCL | — | — | — | — | — | — | — | *training* |
+| WavLM + GMM *(frozen)* | 0.428 | 0.533 | 0.541 | 0.539 | 0.535 | 0.560 | 0.461 | 0.514 |
+| WavLM + Mahalanobis *(frozen)* | 0.470 | 0.584 | 0.566 | 0.557 | 0.532 | 0.569 | 0.490 | 0.538 |
+| WavLM + LOF *(frozen)* | 0.483 | 0.563 | 0.640 | 0.542 | 0.523 | 0.571 | 0.564 | 0.555 |
+| **BEATs *(frozen, AudioSet)*** | **0.504** | **0.709** | **0.609** | **0.618** | **0.776** | **0.654** | **0.597** | **0.638** |
+| BEATs + LoRA + MGA + DLCL | — | — | — | — | — | — | — | *in progress* |
 
-### MIMII-DUE (AUC-ROC)
+### MIMII-DUE (AUC-ROC ↑)
 
 | Model | Fan | Gearbox | Pump | Slider | Valve | **Mean** |
 |---|:---:|:---:|:---:|:---:|:---:|:---:|
 | Transformer Autoencoder | 0.507 | 0.583 | 0.547 | 0.581 | 0.513 | 0.546 |
-| BEATs + LoRA + MGA + DLCL | — | — | — | — | — | *training* |
+| BEATs + LoRA + MGA + DLCL | — | — | — | — | — | *in progress* |
 
 ---
 
@@ -37,11 +60,11 @@ This project implements and benchmarks a full progression of acoustic anomaly de
 
 ### Stage 1 · Convolutional Autoencoder
 
-A reconstruction-based anomaly detector on log-mel spectrograms.
+Reconstruction-based anomaly detection on log-mel spectrograms.
 
-- **Features** — log-mel (`n_fft=1024`, `hop=512`, `n_mels=128`), z-score normalized on normal training data only
-- **Model** — symmetric Conv encoder/decoder, MSE reconstruction loss
-- **Scoring** — mean window reconstruction error → per-machine GMM calibration
+- **Features** — log-mel (`n_fft=1024`, `hop=512`, `n_mels=128`), z-score normalized on normal train only
+- **Model** — symmetric Conv encoder → bottleneck → Conv decoder, MSE reconstruction loss
+- **Scoring** — mean window reconstruction error, per-machine GMM / LOF / Mahalanobis calibration
 - **Scripts** — `scripts/train.py`, `scripts/evaluate.py`
 
 ### Stage 2 · Transformer Autoencoder
@@ -50,7 +73,7 @@ Patch-based self-attention encoder replacing the convolutional backbone.
 
 - **Architecture** — spectrogram patches → linear projection → multi-head self-attention → reconstruction
 - **Same scoring pipeline** as Conv AE
-- **Scripts** — `scripts/train.py --model transformer`, `scripts/evaluate.py`
+- **Scripts** — `scripts/train.py`, `scripts/evaluate.py`
 
 ### Stage 3 · WavLM Frozen Features
 
@@ -66,8 +89,7 @@ Microsoft BEATs (92 M params, pretrained on AudioSet 2 M clips) — strongest re
 
 - **Features** — 768-dim BEATs embeddings, mean-pooled over ~500 frames
 - **Scorer** — per-machine GMM (32 components, full covariance)
-- **Calibrated thresholds** — 95th / 99th percentile of normal training scores
-- **Deployment** — fitted GMMs exported in `beats_frozen_export/` for direct use in inference apps
+- **Calibration** — 95th / 99th percentile thresholds on normal training scores
 - **Scripts** — `scripts/beats_evaluate.py`, `scripts/beats_export_scorers.py`
 
 ### Stage 5 · BEATs + LoRA + MGA + DLCL
@@ -78,16 +100,14 @@ Full reproduction of the **DCASE 2024 Task 2 winning system** (without ensemblin
 |---|---|
 | **LoRA** | Rank-32 adaptation of Q/V/Out projections in all 12 attention layers → 1.77 M trainable params (1.9 %) |
 | **Machine-Aware Adapters (MGA)** | Per-machine bottleneck MLP (768 → 64 → 768) with residual connection |
-| **SpecAugment** | Two independent augmented views per sample — time mask 15 % + feature mask 15 % on BEATs frame features |
-| **Dual-Level Contrastive Loss** | File-level SupCon (mean-pooled) + frame-level SupCon (K=10 random frames), both views concatenated [2B, 256] |
-| **Projection head** | 768 → 512 → 256, L2-normalized |
-| **Optimizer** | AdamW — LoRA: 2e-4, MGA: 5e-4, head: 1e-3, weight decay 1e-4 |
-| **Scheduler** | CosineAnnealingLR → 1e-6 |
-| **Effective batch** | 4 × 4 gradient accumulation = 16 |
-| **Early stopping** | Patience 10 on full-validation SupCon loss |
-| **Checkpointing** | Saves on every val improvement, full resume support |
-
-Two separate models trained — one for DCASE (dev + additional, 16 machine types), one for MIMII-DUE (5 machine types).
+| **SpecAugment** | Two independent augmented views — time mask 15 % + feature mask 15 % on BEATs frame features [B, T, 768] |
+| **Dual-Level Contrastive Loss** | File-level SupCon (mean-pooled) + frame-level SupCon (K=10 frames), both views concatenated [2B, 256] |
+| **Projection Head** | 768 → 512 → 256, L2-normalized |
+| **Optimizer** | AdamW — LoRA: 2e-4 · MGA: 5e-4 · Head: 1e-3 · Weight decay: 1e-4 |
+| **Scheduler** | CosineAnnealingLR decaying to 1e-6 |
+| **Effective Batch** | 4 × 4 gradient accumulation = 16 |
+| **Early Stopping** | Patience 10 on full-validation SupCon loss |
+| **Checkpointing** | Full state saved on every val improvement — kill and resume anytime |
 
 - **Scripts** — `scripts/beats_train.py`, `scripts/beats_train_all.sh`, `scripts/beats_evaluate.py`
 
@@ -95,11 +115,11 @@ Two separate models trained — one for DCASE (dev + additional, 16 machine type
 
 ## Datasets
 
-| Dataset | Machine Types | Train Files | Notes |
+| Dataset | Machine Types | Split | Notes |
 |---|---|---|---|
-| DCASE 2024 Task 2 (dev) | ToyCar, ToyTrain, bearing, fan, gearbox, slider, valve | ~1 000 normal / machine | Domain shift: 990 source / 10 target |
-| DCASE 2024 (additional) | 16 machine types | large | Used for BEATs+LoRA training only |
-| MIMII-DUE | fan, gearbox, pump, slider, valve | ~30 000 total | Multi-section, source + target |
+| DCASE 2024 Task 2 (dev) | ToyCar, ToyTrain, bearing, fan, gearbox, slider, valve | train / test | Domain shift: 990 source / 10 target per section |
+| DCASE 2024 (additional) | 16 machine types | train | Used for BEATs+LoRA training only |
+| MIMII-DUE | fan, gearbox, pump, slider, valve | train / test | Multi-section, source + target domains |
 
 Manifests: `data/processed/manifests/`
 
@@ -113,44 +133,42 @@ cd acoustic-anomaly-detection
 pip install -r requirements.txt
 ```
 
-**Pretrained checkpoints** (not in git):
-- `models/BEATs_iter3_plus_AS2M.pt` — 345 MB · [download from Microsoft UniLM](https://github.com/microsoft/unilm/tree/master/beats)
-- `models/wavlm/` — WavLM Base Plus via HuggingFace `microsoft/wavlm-base-plus`
+**Pretrained checkpoints** (not in git — download separately):
+
+| File | Size | Source |
+|---|---|---|
+| `models/BEATs_iter3_plus_AS2M.pt` | 345 MB | [Microsoft UniLM / BEATs](https://github.com/microsoft/unilm/tree/master/beats) |
+| `models/wavlm/` | 721 MB | HuggingFace `microsoft/wavlm-base-plus` |
 
 ---
 
 ## Usage
 
-### Train Conv AE / Transformer AE
+### Conv AE / Transformer AE
+
 ```bash
-# Single machine type
+# Train single machine
 python3 scripts/train.py \
   --machine-types fan \
   --manifests data/processed/manifests/dcase2024_development.csv \
   --epochs 50 --early-stopping 8
 
-# All DCASE machines
+# Train all DCASE machines
 bash scripts/train_all_dcase.sh
+bash scripts/train_all_dcase_transformer.sh
 
-# All MIMII machines
+# Train all MIMII machines
 bash scripts/train_all_mimii.sh
-```
+bash scripts/train_all_mimii_transformer.sh
 
-### Evaluate Conv AE / Transformer AE
-```bash
+# Evaluate
 python3 scripts/evaluate.py \
   --checkpoint artifacts/runs/fan_best_v1/best_model.pt \
   --manifests data/processed/manifests/dcase2024_development.csv
 ```
 
-### Train BEATs + LoRA (full pipeline)
-```bash
-bash scripts/beats_train_all.sh
-```
-Trains DCASE → evaluates → trains MIMII → evaluates → prints final AUC summary.  
-Kill anytime with `Ctrl+C` — resumes automatically from the last checkpoint.
+### BEATs Frozen
 
-### Evaluate BEATs frozen
 ```bash
 python3 scripts/beats_evaluate.py \
   --beats-ckpt models/BEATs_iter3_plus_AS2M.pt \
@@ -158,15 +176,18 @@ python3 scripts/beats_evaluate.py \
   --gmm-components 32
 ```
 
-### Evaluate BEATs + LoRA
+### BEATs + LoRA (Full Pipeline)
+
 ```bash
-python3 scripts/beats_evaluate.py \
-  --beats-ckpt models/BEATs_iter3_plus_AS2M.pt \
-  --lora-ckpt artifacts/beats_lora_dcase/beats_lora.pt \
-  --manifests data/processed/manifests/dcase2024_development.csv
+# Train DCASE + MIMII sequentially, then evaluate both
+bash scripts/beats_train_all.sh
 ```
 
-### Export scorers for deployment
+> Supports pause and resume — checkpoint saved on every val loss improvement.  
+> Kill with `Ctrl+C` at any time and re-run the same command to continue.
+
+### Export Scorers for Deployment
+
 ```bash
 python3 scripts/beats_export_scorers.py \
   --manifests data/processed/manifests/dcase2024_development.csv \
@@ -176,38 +197,40 @@ python3 scripts/beats_export_scorers.py \
 
 ---
 
-## Inference (Demo App)
+## Inference
+
+Minimal inference example using the exported BEATs frozen scorers:
 
 ```python
 import pickle, json, numpy as np, torch, sys
 sys.path.insert(0, "models")
 from BEATs import BEATs, BEATsConfig
 
-# 1. Load BEATs
-raw = torch.load("models/BEATs_iter3_plus_AS2M.pt", map_location="cpu")
+# Load BEATs
+raw   = torch.load("models/BEATs_iter3_plus_AS2M.pt", map_location="cpu")
 beats = BEATs(BEATsConfig(raw["cfg"]))
 beats.load_state_dict(raw["model"])
 beats.eval()
 
-# 2. Load GMM + threshold for target machine
+# Load GMM + calibrated threshold
 with open("beats_frozen_export/gmms/fan.pkl", "rb") as f:
     gmm = pickle.load(f)
-meta = json.load(open("beats_frozen_export/embeddings_info.json"))
+meta      = json.load(open("beats_frozen_export/embeddings_info.json"))
 threshold = meta["machines"]["fan"]["threshold_99"]
 
-# 3. Score audio  (wav: numpy float32, 16 kHz mono, 10 seconds)
+# Score a 10-second audio clip (numpy float32, 16 kHz mono)
 wav_t = torch.from_numpy(wav).unsqueeze(0)
 pad   = torch.zeros(1, wav_t.size(1), dtype=torch.bool)
 with torch.no_grad():
     feats, _ = beats.extract_features(wav_t, padding_mask=pad)
 emb = feats.mean(dim=1).numpy()
 
-score      = float(-gmm.score_samples(emb)[0])   # higher → more anomalous
-is_anomaly = score > threshold
+anomaly_score = float(-gmm.score_samples(emb)[0])  # higher → more anomalous
+is_anomaly    = anomaly_score > threshold
 ```
 
-> Use `threshold_99` for a production/demo setting (fewer false alarms).  
-> Use `threshold_95` if you prefer higher sensitivity.
+> `threshold_99` — fewer false alarms, recommended for demos  
+> `threshold_95` — higher sensitivity, catches more anomalies
 
 ---
 
@@ -216,44 +239,42 @@ is_anomaly = score > threshold
 ```
 acoustic-anomaly-detection/
 │
-├── data/processed/manifests/          # CSV file lists (train / test splits, per dataset)
+├── data/processed/manifests/          # CSV file lists (train / test splits)
 │
 ├── src/aad/
 │   ├── config.py                      # AudioConfig, FeatureConfig, WindowConfig
 │   ├── dataset.py                     # manifest loading, FileRecord dataclass
 │   ├── preprocess.py                  # audio loading, log-mel, z-score, windowing
 │   ├── model.py                       # ConvAutoencoder, TransformerAutoencoder
-│   └── evaluate_utils.py              # AUC-ROC, pAUC, partial ROC helpers
+│   └── evaluate_utils.py              # AUC-ROC, pAUC helpers
 │
 ├── scripts/
 │   ├── train.py                       # Conv AE / Transformer AE training
 │   ├── evaluate.py                    # Conv AE / Transformer AE evaluation
-│   ├── train_all_dcase.sh             # train all DCASE machine types (Conv AE)
-│   ├── train_all_dcase_transformer.sh # train all DCASE machine types (Transformer)
-│   ├── train_all_mimii.sh             # train all MIMII machine types (Conv AE)
-│   ├── train_all_mimii_transformer.sh # train all MIMII machine types (Transformer)
+│   ├── train_all_dcase.sh             # all DCASE machines — Conv AE
+│   ├── train_all_dcase_transformer.sh # all DCASE machines — Transformer AE
+│   ├── train_all_mimii.sh             # all MIMII machines — Conv AE
+│   ├── train_all_mimii_transformer.sh # all MIMII machines — Transformer AE
 │   ├── wavlm_evaluate.py              # WavLM frozen + GMM / LOF / Mahalanobis
 │   ├── beats_train.py                 # BEATs + LoRA + MGA + DLCL training
 │   ├── beats_evaluate.py              # BEATs GMM evaluation
-│   ├── beats_export_scorers.py        # export fitted GMMs + thresholds for deployment
-│   └── beats_train_all.sh             # full sequential pipeline (DCASE + MIMII)
+│   ├── beats_export_scorers.py        # export GMMs + thresholds for deployment
+│   └── beats_train_all.sh             # full sequential pipeline
 │
 ├── models/
-│   ├── BEATs.py                       # BEATs model definition (Microsoft)
+│   ├── BEATs.py                       # BEATs model (Microsoft)
 │   ├── backbone.py                    # TransformerEncoder
 │   └── modules.py                     # MultiheadAttention and building blocks
 │
 ├── beats_frozen_export/
 │   ├── gmms/                          # fitted GMM scorers per machine type
-│   ├── embeddings_info.json           # calibrated thresholds + metadata
+│   ├── embeddings_info.json           # thresholds + metadata
 │   └── README.txt                     # standalone inference instructions
 │
-├── artifacts/                         # trained model checkpoints + eval results (not in git)
-│   ├── runs/                          # Conv AE + Transformer AE (per machine)
-│   ├── beats_lora_dcase/              # BEATs+LoRA DCASE checkpoint
-│   └── beats_lora_mimii/              # BEATs+LoRA MIMII checkpoint
-│
-└── requirements.txt
+└── artifacts/                         # model checkpoints + results (not in git)
+    ├── runs/                          # Conv AE + Transformer AE per machine
+    ├── beats_lora_dcase/              # BEATs+LoRA DCASE checkpoint
+    └── beats_lora_mimii/              # BEATs+LoRA MIMII checkpoint
 ```
 
 ---
@@ -263,8 +284,14 @@ acoustic-anomaly-detection/
 | Decision | Reason |
 |---|---|
 | Normal-only training | Anomaly labels unavailable at train time — standard DCASE protocol |
-| Per-machine GMM | Avoids contamination between machine types with different acoustic profiles |
-| Separate DCASE / MIMII models | Different recording conditions; a shared model confuses machine-aware adapters |
-| Full-validation SupCon loss | Small batch sizes produce zero positive pairs — computing loss over the full val set prevents false early stopping |
-| Soundfile primary, librosa fallback | Avoids multiprocessing issues and librosa deprecation warnings on broken files |
-| Checkpoint on every val improvement | Safe to interrupt long GPU training (20 min/epoch) and resume without losing progress |
+| Per-machine GMM | Avoids cross-machine contamination between different acoustic profiles |
+| Separate DCASE / MIMII models | Different recording conditions; mixing datasets confuses machine-aware adapters |
+| Full-validation SupCon loss | Small batches → zero positive pairs → false early stopping. Full-set validation fixes this |
+| Soundfile primary, librosa fallback | Avoids multiprocessing issues and librosa deprecation warnings |
+| Checkpoint on every val improvement | Safe to kill 20-min/epoch GPU training and resume without losing progress |
+
+---
+
+## License
+
+MIT
