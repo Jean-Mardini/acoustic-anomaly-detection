@@ -18,16 +18,21 @@ from fastapi.staticfiles import StaticFiles
 
 ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / "src"
+MODELS = ROOT / "models"
 ARTIFACTS_ROOT = ROOT / "artifacts"
+BEATS_EXPORT_ROOT = ROOT / "beats_frozen_export"
 MIN_RECALL = float(os.environ.get("MIN_RECALL_ABNORMAL", "0.15"))
 MIN_F1 = float(os.environ.get("MIN_F1_ABNORMAL", "0.15"))
 ENABLE_QUALITY_GATE = os.environ.get("ENABLE_QUALITY_GATE", "0").strip() not in {"0", "false", "False"}
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
+if str(MODELS) not in sys.path:
+    sys.path.insert(0, str(MODELS))
 
 from aad.config import AudioConfig, FeatureConfig, WindowConfig
 from aad.dataset import FileRecord
 from aad.evaluate_utils import gmm_score_file, load_bundle, mahalanobis_score_file, score_file
+from aad.preprocess import load_audio
 
 app = FastAPI(title="Acoustic Anomaly Detection API")
 app.mount("/static", StaticFiles(directory=ROOT / "app" / "static"), name="static")
@@ -122,76 +127,165 @@ def _pick_optimized_threshold(run_dir: Path, machine: str) -> tuple[float, str] 
     return float(vals["threshold"]), p.name
 
 
+def _resolve_beats_ckpt() -> Path:
+    configured = os.environ.get("BEATS_CHECKPOINT", "").strip()
+    candidates = []
+    if configured:
+        candidates.append(Path(configured))
+    candidates.extend(
+        [
+            ROOT / "models" / "BEATs_iter3_plus_AS2M.pt",
+            ROOT / "beats_frozen_export" / "BEATs_iter3_plus_AS2M.pt",
+            ROOT.parent / "BEATs_iter3_plus_AS2M.pt",
+        ]
+    )
+    for path in candidates:
+        p = path.expanduser()
+        if p.is_file():
+            return p
+    raise FileNotFoundError(
+        "BEATs checkpoint not found. Set BEATS_CHECKPOINT or place BEATs_iter3_plus_AS2M.pt "
+        "in models/, beats_frozen_export/, or the repo parent folder."
+    )
+
+
+def _load_beats_export_meta() -> dict[str, Any] | None:
+    p = BEATS_EXPORT_ROOT / "embeddings_info.json"
+    if not p.is_file():
+        return None
+    try:
+        payload = json.loads(p.read_text(encoding="utf-8"))
+    except Exception:
+        return None
+    return payload if isinstance(payload, dict) else None
+
+
+def _load_beats_eval_meta() -> dict[str, Any] | None:
+    p = BEATS_EXPORT_ROOT / "beats_frozen_results.json"
+    if not p.is_file():
+        return None
+    try:
+        payload = json.loads(p.read_text(encoding="utf-8"))
+    except Exception:
+        return None
+    return payload if isinstance(payload, dict) else None
+
+
 @lru_cache(maxsize=1)
 def _catalog() -> dict[str, Any]:
     models: list[dict[str, Any]] = []
     datasets: dict[str, dict[str, Any]] = {}
-    if not ARTIFACTS_ROOT.exists():
-        return {"models": models, "datasets": datasets}
 
-    for ckpt in sorted(ARTIFACTS_ROOT.glob("*/*/*/best_model.pt")):
-        try:
-            dataset, architecture, run_name = ckpt.parts[-4], ckpt.parts[-3], ckpt.parts[-2]
-        except Exception:
-            continue
-        machine_raw = run_name.removesuffix("_best_v1").removesuffix("_transformer_v1")
-        machine = _clean_machine(machine_raw, dataset)
-        best_eval = _pick_best_eval(ckpt.parent)
-        model_entry: dict[str, Any] = {
-            "dataset": dataset,
-            "architecture": architecture,
-            "machine_type": machine,
-            "run_name": run_name,
-            "checkpoint": _rel(ckpt),
-            "best_eval_file": None,
-            "best_method": "reconstruction",
-            "best_eval_metrics": None,
-            "quality_gate": {
-                "enabled": ENABLE_QUALITY_GATE,
-                "min_recall_abnormal": MIN_RECALL,
-                "min_f1_abnormal": MIN_F1,
-            },
-            "is_deployable": True,
-            "quality_reason": None,
-            "threshold": None,
-            "threshold_source": None,
-        }
-        if best_eval:
-            payload = best_eval["payload"]
-            metrics = payload.get("per_machine", {}).get(machine, {})
-            if not isinstance(metrics, dict):
-                metrics = {}
-            model_entry["best_eval_file"] = best_eval["eval_file"]
-            model_entry["best_method"] = _method_from_eval_file(best_eval["eval_file"])
-            model_entry["best_eval_metrics"] = {
-                "auc_roc": float(metrics.get("auc_roc", 0.0)),
-                "pauc_fpr_le_0.1": float(metrics.get("pauc_fpr_le_0.1", 0.0)),
-                "precision_abnormal": float(metrics.get("precision_abnormal", 0.0)),
-                "recall_abnormal": float(metrics.get("recall_abnormal", 0.0)),
-                "f1_abnormal": float(metrics.get("f1_abnormal", 0.0)),
+    if ARTIFACTS_ROOT.exists():
+        for ckpt in sorted(ARTIFACTS_ROOT.glob("*/*/*/best_model.pt")):
+            try:
+                dataset, architecture, run_name = ckpt.parts[-4], ckpt.parts[-3], ckpt.parts[-2]
+            except Exception:
+                continue
+            machine_raw = run_name.removesuffix("_best_v1").removesuffix("_transformer_v1")
+            machine = _clean_machine(machine_raw, dataset)
+            best_eval = _pick_best_eval(ckpt.parent)
+            model_entry: dict[str, Any] = {
+                "dataset": dataset,
+                "architecture": architecture,
+                "machine_type": machine,
+                "run_name": run_name,
+                "checkpoint": _rel(ckpt),
+                "best_eval_file": None,
+                "best_method": "reconstruction",
+                "best_eval_metrics": None,
+                "quality_gate": {
+                    "enabled": ENABLE_QUALITY_GATE,
+                    "min_recall_abnormal": MIN_RECALL,
+                    "min_f1_abnormal": MIN_F1,
+                },
+                "is_deployable": True,
+                "quality_reason": None,
+                "threshold": None,
+                "threshold_source": None,
             }
-            if ENABLE_QUALITY_GATE:
-                rec = float(metrics.get("recall_abnormal", 0.0))
-                f1 = float(metrics.get("f1_abnormal", 0.0))
-                if rec < MIN_RECALL or f1 < MIN_F1:
-                    model_entry["is_deployable"] = False
-                    model_entry["quality_reason"] = (
-                        f"Low reliability for deployment: recall={rec:.3f}, f1={f1:.3f}"
-                    )
-            if "threshold" in metrics:
-                model_entry["threshold"] = float(metrics["threshold"])
-                model_entry["threshold_source"] = best_eval["eval_file"]
+            if best_eval:
+                payload = best_eval["payload"]
+                metrics = payload.get("per_machine", {}).get(machine, {})
+                if not isinstance(metrics, dict):
+                    metrics = {}
+                model_entry["best_eval_file"] = best_eval["eval_file"]
+                model_entry["best_method"] = _method_from_eval_file(best_eval["eval_file"])
+                model_entry["best_eval_metrics"] = {
+                    "auc_roc": float(metrics.get("auc_roc", 0.0)),
+                    "pauc_fpr_le_0.1": float(metrics.get("pauc_fpr_le_0.1", 0.0)),
+                    "precision_abnormal": float(metrics.get("precision_abnormal", 0.0)),
+                    "recall_abnormal": float(metrics.get("recall_abnormal", 0.0)),
+                    "f1_abnormal": float(metrics.get("f1_abnormal", 0.0)),
+                }
+                if ENABLE_QUALITY_GATE:
+                    rec = float(metrics.get("recall_abnormal", 0.0))
+                    f1 = float(metrics.get("f1_abnormal", 0.0))
+                    if rec < MIN_RECALL or f1 < MIN_F1:
+                        model_entry["is_deployable"] = False
+                        model_entry["quality_reason"] = (
+                            f"Low reliability for deployment: recall={rec:.3f}, f1={f1:.3f}"
+                        )
+                if "threshold" in metrics:
+                    model_entry["threshold"] = float(metrics["threshold"])
+                    model_entry["threshold_source"] = best_eval["eval_file"]
 
-        # Use reconstruction-optimized thresholds only when reconstruction is the active method.
-        # For LOF/GMM/Mahalanobis methods, keep thresholds from their matching evaluation file.
-        if model_entry.get("best_method") == "reconstruction":
-            opt_threshold = _pick_optimized_threshold(ckpt.parent, machine)
-            if opt_threshold is not None:
-                model_entry["threshold"] = opt_threshold[0]
-                model_entry["threshold_source"] = opt_threshold[1]
+            # Use reconstruction-optimized thresholds only when reconstruction is the active method.
+            # For LOF/GMM/Mahalanobis methods, keep thresholds from their matching evaluation file.
+            if model_entry.get("best_method") == "reconstruction":
+                opt_threshold = _pick_optimized_threshold(ckpt.parent, machine)
+                if opt_threshold is not None:
+                    model_entry["threshold"] = opt_threshold[0]
+                    model_entry["threshold_source"] = opt_threshold[1]
 
-        models.append(model_entry)
-        datasets.setdefault(machine, {}).setdefault(architecture, []).append(model_entry)
+            models.append(model_entry)
+            datasets.setdefault(machine, {}).setdefault(architecture, []).append(model_entry)
+
+    beats_meta = _load_beats_export_meta()
+    beats_eval = _load_beats_eval_meta()
+    beats_eval_per_machine = beats_eval.get("per_machine", {}) if isinstance(beats_eval, dict) else {}
+    if beats_meta:
+        machine_info = beats_meta.get("machines", {})
+        if isinstance(machine_info, dict):
+            for machine, vals in machine_info.items():
+                if not isinstance(vals, dict):
+                    continue
+                gmm_rel = str(vals.get("gmm_path", f"gmms/{machine}.pkl"))
+                gmm_path = BEATS_EXPORT_ROOT / Path(gmm_rel)
+                if not gmm_path.is_file():
+                    continue
+                threshold = float(vals.get("threshold_99", vals.get("threshold_95", np.nan)))
+                eval_metrics = beats_eval_per_machine.get(machine, {}) if isinstance(beats_eval_per_machine, dict) else {}
+                if not isinstance(eval_metrics, dict):
+                    eval_metrics = {}
+                model_entry = {
+                    "dataset": "dcase2024_development",
+                    "architecture": "beats_frozen",
+                    "machine_type": str(machine),
+                    "run_name": "beats_frozen_export",
+                    "checkpoint": "beats_frozen://export",
+                    "best_eval_file": "beats_frozen_results.json" if eval_metrics else "embeddings_info.json",
+                    "best_method": "gmm",
+                    "best_eval_metrics": {
+                        "auc_roc": float(eval_metrics.get("auc_roc", 0.0)),
+                        "pauc_fpr_le_0.1": float(eval_metrics.get("pauc_fpr_le_0.1", 0.0)),
+                        "precision_abnormal": 0.0,
+                        "recall_abnormal": 0.0,
+                        "f1_abnormal": 0.0,
+                    },
+                    "quality_gate": {
+                        "enabled": False,
+                        "min_recall_abnormal": MIN_RECALL,
+                        "min_f1_abnormal": MIN_F1,
+                    },
+                    "is_deployable": True,
+                    "quality_reason": None,
+                    "threshold": None if not np.isfinite(threshold) else threshold,
+                    "threshold_source": "embeddings_info.json:threshold_99",
+                    "beats_gmm_path": _rel(gmm_path),
+                }
+                models.append(model_entry)
+                datasets.setdefault(str(machine), {}).setdefault("beats_frozen", []).append(model_entry)
 
     for machine, arch_map in datasets.items():
         for architecture, entries in arch_map.items():
@@ -296,6 +390,45 @@ def _load_scorer(rel_run_dir: str, method: str) -> Any:
     raise FileNotFoundError(f"Unsupported scorer method '{method}'")
 
 
+@lru_cache(maxsize=1)
+def _beats_runtime() -> dict[str, Any]:
+    try:
+        from BEATs import BEATs, BEATsConfig
+    except ModuleNotFoundError as e:
+        raise ModuleNotFoundError(
+            "Missing BEATs dependency: torchaudio. Install it with `pip install torchaudio`."
+        ) from e
+
+    ckpt = _resolve_beats_ckpt()
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    raw = torch.load(ckpt, map_location="cpu")
+    beats = BEATs(BEATsConfig(raw["cfg"]))
+    beats.load_state_dict(raw["model"])
+    beats.to(device).eval()
+    audio_cfg = AudioConfig()
+    target_len = int(audio_cfg.fixed_duration_sec * audio_cfg.sample_rate)
+    return {"model": beats, "device": device, "audio_cfg": audio_cfg, "target_len": target_len, "ckpt": ckpt}
+
+
+@torch.no_grad()
+def _score_beats_frozen(audio_path: Path, machine_type: str, gmm_rel_path: str) -> float:
+    runtime = _beats_runtime()
+    gmm_path = ROOT / gmm_rel_path
+    if not gmm_path.is_file():
+        raise FileNotFoundError(f"Missing BEATs scorer artifact: {gmm_path}")
+    gmm = joblib.load(gmm_path)
+    wav = load_audio(audio_path, runtime["audio_cfg"]).astype(np.float32)
+    target_len = int(runtime["target_len"])
+    if len(wav) < target_len:
+        wav = np.tile(wav, int(np.ceil(target_len / max(1, len(wav)))))
+    wav = wav[:target_len]
+    wav_t = torch.from_numpy(wav).unsqueeze(0).to(runtime["device"])
+    pad = torch.zeros(1, wav_t.size(1), dtype=torch.bool, device=runtime["device"])
+    feats, _ = runtime["model"].extract_features(wav_t, padding_mask=pad)
+    emb = feats.mean(dim=1).cpu().numpy()
+    return float(-gmm.score_samples(emb)[0])
+
+
 @app.get("/", response_class=HTMLResponse)
 def index() -> str:
     return """
@@ -329,8 +462,8 @@ def index() -> str:
         radial-gradient(900px 500px at 100% 0%, #112a36 0%, transparent 50%),
         var(--bg);
       min-height: 100vh;
-      font-size: 21px;
-      zoom: 1.2;
+      font-size: 22px;
+      zoom: 1.25;
     }
     .container {
       width: 100%;
@@ -560,8 +693,6 @@ def index() -> str:
           <select id="dataset"></select>
           <label>Audio file (.wav / .flac)</label>
           <input id="audio" type="file" accept=".wav,.flac" />
-          <label>Threshold override (optional)</label>
-          <input id="threshold" type="number" step="any" placeholder="Leave empty to use model threshold" />
           <button class="btn" id="run">Run Inference</button>
           <div class="meta" id="selectionMeta">Load a file and run scoring.</div>
         </div>
@@ -708,8 +839,6 @@ def index() -> str:
       fd.append('architecture', document.getElementById('arch').value);
       const ds = document.getElementById('dataset').value;
       if (ds) fd.append('dataset', ds);
-      const thr = document.getElementById('threshold').value;
-      if (thr !== '') fd.append('threshold_override', thr);
       try {
         const res = await fetch('/score', { method: 'POST', body: fd });
         const txt = await res.text();
@@ -722,6 +851,8 @@ def index() -> str:
           document.getElementById('decisionValue').textContent = '-';
           document.getElementById('methodValue').textContent = '-';
           document.getElementById('thresholdSourceValue').textContent = '-';
+          const detail = out && out.detail ? String(out.detail) : `HTTP ${res.status}`;
+          document.getElementById('selectionMeta').textContent = `Inference failed: ${detail}`;
           return;
         }
         const decision = out.decision || 'uncertain';
@@ -771,10 +902,6 @@ async def score(
     threshold_override: float | None = Form(None),
 ) -> dict[str, Any]:
     model_item = _resolve_model(machine_type=machine_type, architecture=architecture, dataset=dataset)
-    try:
-        model, device, audio_cfg, feature_cfg, window_cfg, mean, std = _bundle_for_checkpoint(model_item["checkpoint"])
-    except FileNotFoundError as e:
-        raise HTTPException(status_code=503, detail=str(e)) from e
 
     suffix = (file.filename or "").lower()
     if not suffix.endswith((".wav", ".flac")):
@@ -785,73 +912,88 @@ async def score(
     os.close(fd)
     tmp = Path(tmp_name)
     method = str(model_item.get("best_method") or "reconstruction")
-    run_dir_rel = str(Path(model_item["checkpoint"]).parent).replace("\\", "/")
-    scorer_obj = None
-    if method != "reconstruction":
-        try:
-            scorer_obj = _load_scorer(run_dir_rel, method)
-        except FileNotFoundError as e:
-            raise HTTPException(
-                status_code=409,
-                detail=(
-                    f"Best method '{method}' selected by {model_item.get('best_eval_file')}, "
-                    f"but scorer artifact is missing. {e}"
-                ),
-            ) from e
     try:
         tmp.write_bytes(raw)
-        rec = FileRecord(
-            audio_path=tmp,
-            machine_type=machine_type,
-            section="unknown",
-            domain="unknown",
-            split="inference",
-            label="unknown",
-            dataset_name=model_item["dataset"],
-        )
-        shared = dict(
-            audio_cfg=audio_cfg,
-            feature_cfg=feature_cfg,
-            window_cfg=window_cfg,
-            mean=mean,
-            std=std,
-            device=device,
-        )
-        if method in ("gmm", "tta_gmm"):
-            score_value = gmm_score_file(model, rec, **shared, gmm=scorer_obj)
-        elif method == "domain_gmm":
-            s_src = gmm_score_file(model, rec, **shared, gmm=scorer_obj["source"])
-            s_tgt = gmm_score_file(model, rec, **shared, gmm=scorer_obj["target"])
-            if np.isfinite(s_src) and np.isfinite(s_tgt):
-                score_value = min(float(s_src), float(s_tgt))
-            else:
-                score_value = float(s_src) if np.isfinite(s_src) else float(s_tgt)
-        elif method == "mahalanobis":
-            score_value = mahalanobis_score_file(
-                model, rec, **shared, mu=scorer_obj["mu"], inv_cov=scorer_obj["inv_cov"]
-            )
-        elif method == "lof":
-            z = model.encode
-            # Reuse gmm_score_file-style preprocessing for LOF by collecting one file's latents inline.
-            from aad.preprocess import load_audio, waveform_to_log_mel, window_spectrogram, zscore
-
-            wav = load_audio(rec.audio_path, audio_cfg)
-            mel = waveform_to_log_mel(wav, feature_cfg, sample_rate=audio_cfg.sample_rate)
-            mel = zscore(mel, mean=mean, std=std)
-            windows = window_spectrogram(mel, window_cfg)
-            if not windows:
-                score_value = float("nan")
-            else:
-                scores: list[float] = []
-                for w in windows:
-                    x = torch.from_numpy(w).unsqueeze(0).unsqueeze(0).to(device)
-                    latent = z(x)
-                    z_hat, _ = model.memory(latent)
-                    vec = z_hat.detach().cpu().numpy()
-                    scores.append(float(-scorer_obj.score_samples(vec)[0]))
-                score_value = float(np.max(scores))
+        if architecture == "beats_frozen":
+            gmm_rel = model_item.get("beats_gmm_path")
+            if not gmm_rel:
+                raise HTTPException(status_code=409, detail="Missing BEATs GMM path in model catalog.")
+            try:
+                score_value = _score_beats_frozen(tmp, machine_type=machine_type, gmm_rel_path=gmm_rel)
+            except ModuleNotFoundError as e:
+                raise HTTPException(status_code=503, detail=str(e)) from e
         else:
-            score_value = score_file(model, rec, **shared)
+            try:
+                model, device, audio_cfg, feature_cfg, window_cfg, mean, std = _bundle_for_checkpoint(model_item["checkpoint"])
+            except FileNotFoundError as e:
+                raise HTTPException(status_code=503, detail=str(e)) from e
+            run_dir_rel = str(Path(model_item["checkpoint"]).parent).replace("\\", "/")
+            scorer_obj = None
+            if method != "reconstruction":
+                try:
+                    scorer_obj = _load_scorer(run_dir_rel, method)
+                except FileNotFoundError as e:
+                    raise HTTPException(
+                        status_code=409,
+                        detail=(
+                            f"Best method '{method}' selected by {model_item.get('best_eval_file')}, "
+                            f"but scorer artifact is missing. {e}"
+                        ),
+                    ) from e
+            rec = FileRecord(
+                audio_path=tmp,
+                machine_type=machine_type,
+                section="unknown",
+                domain="unknown",
+                split="inference",
+                label="unknown",
+                dataset_name=model_item["dataset"],
+            )
+            shared = dict(
+                audio_cfg=audio_cfg,
+                feature_cfg=feature_cfg,
+                window_cfg=window_cfg,
+                mean=mean,
+                std=std,
+                device=device,
+            )
+            if method in ("gmm", "tta_gmm"):
+                score_value = gmm_score_file(model, rec, **shared, gmm=scorer_obj)
+            elif method == "domain_gmm":
+                s_src = gmm_score_file(model, rec, **shared, gmm=scorer_obj["source"])
+                s_tgt = gmm_score_file(model, rec, **shared, gmm=scorer_obj["target"])
+                if np.isfinite(s_src) and np.isfinite(s_tgt):
+                    score_value = min(float(s_src), float(s_tgt))
+                else:
+                    score_value = float(s_src) if np.isfinite(s_src) else float(s_tgt)
+            elif method == "mahalanobis":
+                score_value = mahalanobis_score_file(
+                    model, rec, **shared, mu=scorer_obj["mu"], inv_cov=scorer_obj["inv_cov"]
+                )
+            elif method == "lof":
+                z = model.encode
+                # Reuse gmm_score_file-style preprocessing for LOF by collecting one file's latents inline.
+                from aad.preprocess import load_audio, waveform_to_log_mel, window_spectrogram, zscore
+
+                wav = load_audio(rec.audio_path, audio_cfg)
+                mel = waveform_to_log_mel(wav, feature_cfg, sample_rate=audio_cfg.sample_rate)
+                mel = zscore(mel, mean=mean, std=std)
+                windows = window_spectrogram(mel, window_cfg)
+                if not windows:
+                    score_value = float("nan")
+                else:
+                    scores: list[float] = []
+                    for w in windows:
+                        x = torch.from_numpy(w).unsqueeze(0).unsqueeze(0).to(device)
+                        latent = z(x)
+                        z_hat, _ = model.memory(latent)
+                        vec = z_hat.detach().cpu().numpy()
+                        scores.append(float(-scorer_obj.score_samples(vec)[0]))
+                    score_value = float(np.max(scores))
+            else:
+                score_value = score_file(model, rec, **shared)
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Scoring failed: {e}") from e
     finally:

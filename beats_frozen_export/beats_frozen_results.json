@@ -1,0 +1,49 @@
+{
+  "mode": "BEATs-frozen",
+  "scorer": "gmm",
+  "per_machine": {
+    "ToyCar": {
+      "auc_roc": 0.5044,
+      "pauc_fpr_le_0.1": 0.037,
+      "n_cal": 1000,
+      "n_eval": 200
+    },
+    "ToyTrain": {
+      "auc_roc": 0.7086999999999999,
+      "pauc_fpr_le_0.1": 0.16699999999999998,
+      "n_cal": 1000,
+      "n_eval": 200
+    },
+    "bearing": {
+      "auc_roc": 0.6088,
+      "pauc_fpr_le_0.1": 0.289,
+      "n_cal": 1000,
+      "n_eval": 200
+    },
+    "fan": {
+      "auc_roc": 0.6180000000000001,
+      "pauc_fpr_le_0.1": 0.253,
+      "n_cal": 1000,
+      "n_eval": 200
+    },
+    "gearbox": {
+      "auc_roc": 0.7763000000000001,
+      "pauc_fpr_le_0.1": 0.29700000000000004,
+      "n_cal": 999,
+      "n_eval": 200
+    },
+    "slider": {
+      "auc_roc": 0.6539999999999999,
+      "pauc_fpr_le_0.1": 0.054,
+      "n_cal": 1000,
+      "n_eval": 200
+    },
+    "valve": {
+      "auc_roc": 0.5972,
+      "pauc_fpr_le_0.1": 0.098,
+      "n_cal": 1000,
+      "n_eval": 200
+    }
+  },
+  "mean_auc": 0.6382
+}
