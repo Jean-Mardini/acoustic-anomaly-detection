@@ -31,9 +31,8 @@
 - **Public Docker image:** [Docker Hub — `jeanmardini/acoustic-anomaly-detection`](https://hub.docker.com/r/jeanmardini/acoustic-anomaly-detection) (repository: [link](https://hub.docker.com/repository/docker/jeanmardini/acoustic-anomaly-detection/general))
   - `docker pull jeanmardini/acoustic-anomaly-detection:latest`
   - `docker run --rm -p 8000:8000 jeanmardini/acoustic-anomaly-detection:latest` → UI [http://localhost:8000](http://localhost:8000)
-- **Demo video (~3 min):** **video file in this repository** — after you add it, set the path here (example): `deliverables/demo_3min.mp4`
+- **Demo video (~3 min):** can be added as a video file in this repository (e.g. root) or submitted separately per course instructions.
 - **Slides & report (in this repo):** `acoustic_anomaly_detection.pptx`, `project_report.docx` (root)
-- **Printable link sheet (Word):** `deliverables/Course_Submission_Cover_Sheet.docx` — Git + Docker links for the grader (regenerate with `python scripts/build_submission_cover_docx.py` if needed)
 
 ---
 
