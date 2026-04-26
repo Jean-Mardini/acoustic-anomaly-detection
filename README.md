@@ -120,6 +120,49 @@ pip install -r requirements.txt
 
 ---
 
+## Docker (Local + Docker Hub)
+
+### Build and run locally
+
+```bash
+# Build image
+docker build -t acoustic-anomaly-detection:latest .
+
+# Run container
+docker run --rm -p 8000:8000 acoustic-anomaly-detection:latest
+```
+
+Open:
+
+- UI: [http://localhost:8000](http://localhost:8000)
+- API docs: [http://localhost:8000/docs](http://localhost:8000/docs)
+
+### Publish manually to Docker Hub
+
+```bash
+# 1) Login
+docker login
+
+# 2) Tag image (replace <dockerhub-username>)
+docker tag acoustic-anomaly-detection:latest <dockerhub-username>/acoustic-anomaly-detection:latest
+
+# 3) Push
+docker push <dockerhub-username>/acoustic-anomaly-detection:latest
+```
+
+### Automated publish with GitHub Actions
+
+This repo includes `.github/workflows/docker-publish.yml`.
+
+Set these repository secrets in GitHub:
+
+- `DOCKERHUB_USERNAME`
+- `DOCKERHUB_TOKEN` (Docker Hub access token)
+
+Then push to `main` (or run workflow manually) to build and publish the image automatically.
+
+---
+
 ## Usage
 
 ### Conv AE / Transformer AE

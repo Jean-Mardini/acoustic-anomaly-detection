@@ -2,6 +2,7 @@ numpy
 pandas
 librosa
 torch
+torchaudio
 scikit-learn
 tqdm
 fastapi
