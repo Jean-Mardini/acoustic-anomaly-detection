@@ -26,6 +26,13 @@
 | Christy Tannoury |  Artificial Intelligence - ESIB, USJ |
 | Angela Nabhan |  Artificial Intelligence - ESIB, USJ |
 
+### Course deliverables (submission)
+
+- **Public Docker image:** [Docker Hub — `jeanmardini/acoustic-anomaly-detection`](https://hub.docker.com/r/jeanmardini/acoustic-anomaly-detection) (repository: [link](https://hub.docker.com/repository/docker/jeanmardini/acoustic-anomaly-detection/general))
+  - `docker pull jeanmardini/acoustic-anomaly-detection:latest`
+  - `docker run --rm -p 8000:8000 jeanmardini/acoustic-anomaly-detection:latest` → UI [http://localhost:8000](http://localhost:8000)
+- **Demo video (~3 min):** **video file in this repository** — after you add it, set the path here (example): `deliverables/demo_3min.mp4`
+- **Slides & report (in this repo):** `acoustic_anomaly_detection.pptx`, `project_report.docx` (root)
 
 ---
 
@@ -122,6 +129,14 @@ pip install -r requirements.txt
 
 ## Docker (Local + Docker Hub)
 
+### Public image (Docker Hub)
+
+Image is published for graders and end users:
+
+- Page: [hub.docker.com/r/jeanmardini/acoustic-anomaly-detection](https://hub.docker.com/r/jeanmardini/acoustic-anomaly-detection)
+- `docker pull jeanmardini/acoustic-anomaly-detection:latest`
+- `docker run --rm -p 8000:8000 jeanmardini/acoustic-anomaly-detection:latest`
+
 ### Build and run locally
 
 ```bash
@@ -143,11 +158,11 @@ Open:
 # 1) Login
 docker login
 
-# 2) Tag image (replace <dockerhub-username>)
-docker tag acoustic-anomaly-detection:latest <dockerhub-username>/acoustic-anomaly-detection:latest
+# 2) Tag image (example: jeanmardini on Docker Hub)
+docker tag acoustic-anomaly-detection:latest jeanmardini/acoustic-anomaly-detection:latest
 
 # 3) Push
-docker push <dockerhub-username>/acoustic-anomaly-detection:latest
+docker push jeanmardini/acoustic-anomaly-detection:latest
 ```
 
 ### Automated publish with GitHub Actions
