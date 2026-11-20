@@ -127,6 +127,33 @@ def _pick_optimized_threshold(run_dir: Path, machine: str) -> tuple[float, str] 
     return float(vals["threshold"]), p.name
 
 
+BEATS_CKPT_NAME = "BEATs_iter3_plus_AS2M.pt"
+BEATS_CKPT_URL = os.environ.get(
+    "BEATS_CHECKPOINT_URL",
+    "https://github.com/Jean-Mardini/acoustic-anomaly-detection/releases/download/v1.0/" + BEATS_CKPT_NAME,
+)
+
+
+def _download_beats_ckpt(dest: Path) -> Path:
+    import shutil
+    import urllib.request
+
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    tmp = dest.with_suffix(".part")
+    print(f"Downloading BEATs checkpoint (~345 MB) from {BEATS_CKPT_URL} ...", flush=True)
+    try:
+        with urllib.request.urlopen(BEATS_CKPT_URL, timeout=60) as resp, open(tmp, "wb") as out:
+            shutil.copyfileobj(resp, out, length=1 << 20)
+        tmp.replace(dest)
+    except Exception as exc:
+        tmp.unlink(missing_ok=True)
+        raise FileNotFoundError(
+            f"BEATs checkpoint not found locally and the download failed ({exc}). "
+            f"Download {BEATS_CKPT_NAME} manually and put it in models/, or set BEATS_CHECKPOINT."
+        ) from exc
+    return dest
+
+
 def _resolve_beats_ckpt() -> Path:
     configured = os.environ.get("BEATS_CHECKPOINT", "").strip()
     candidates = []
@@ -134,19 +161,16 @@ def _resolve_beats_ckpt() -> Path:
         candidates.append(Path(configured))
     candidates.extend(
         [
-            ROOT / "models" / "BEATs_iter3_plus_AS2M.pt",
-            ROOT / "beats_frozen_export" / "BEATs_iter3_plus_AS2M.pt",
-            ROOT.parent / "BEATs_iter3_plus_AS2M.pt",
+            ROOT / "models" / BEATS_CKPT_NAME,
+            ROOT / "beats_frozen_export" / BEATS_CKPT_NAME,
+            ROOT.parent / BEATS_CKPT_NAME,
         ]
     )
     for path in candidates:
         p = path.expanduser()
         if p.is_file():
             return p
-    raise FileNotFoundError(
-        "BEATs checkpoint not found. Set BEATS_CHECKPOINT or place BEATs_iter3_plus_AS2M.pt "
-        "in models/, beats_frozen_export/, or the repo parent folder."
-    )
+    return _download_beats_ckpt(ROOT / "models" / BEATS_CKPT_NAME)
 
 
 def _load_beats_export_meta() -> dict[str, Any] | None:
