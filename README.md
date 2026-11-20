@@ -1,4 +1,4 @@
-# Acoustic Anomaly Detection
+# Acoustic Anomaly Detection under Domain Shift
 
 <div align="center">
 
@@ -7,215 +7,145 @@
 ![BEATs](https://img.shields.io/badge/BEATs-AudioSet-orange)
 ![DCASE](https://img.shields.io/badge/DCASE-2024_Task_2-green)
 ![MIMII](https://img.shields.io/badge/MIMII-DUE-purple)
+![Docker](https://img.shields.io/badge/Docker-Hub-2496ED?logo=docker)
 ![License](https://img.shields.io/badge/License-MIT-yellow)
 
-**An end-to-end unsupervised acoustic anomaly detection pipeline - progressing from convolutional and transformer autoencoder baselines to BEATs frozen features, benchmarked on DCASE 2024 Task 2 and MIMII-DUE.**
+Detecting faulty industrial machines from their sound, training on normal audio only and testing under changed recording conditions.
 
-[Overview](#overview) · [Results](#results) · [Methods](#methods) · [Installation](#installation) · [Usage](#usage) · [Inference](#inference) · [Structure](#project-structure)
+[Problem](#problem) · [Results](#results) · [Methods](#methods) · [Docker](#run-with-docker) · [Reproduce](#reproduce) · [Structure](#project-structure)
 
 </div>
 
 ---
 
-## Authors
+## Problem
 
-| Name | Institution |
-|---|---|
-| Jean Mardini |   Artificial Intelligence - ESIB, USJ |
-| Marc Khattar |   Artificial Intelligence - ESIB, USJ |
-| Christy Tannoury |  Artificial Intelligence - ESIB, USJ |
-| Angela Nabhan |  Artificial Intelligence - ESIB, USJ |
+A pump, fan or gearbox often sounds different before it fails. The system takes a short audio clip and returns an anomaly score and a decision (normal / check this machine). The setting has three constraints:
 
-### Course deliverables (submission)
+1. Unsupervised: only normal recordings are available for training; anomalies appear only at test time.
+2. Domain shift: test clips may come from a different microphone, speed or background noise than training clips (source vs target domain).
+3. Per-machine scoring: each machine type gets its own scorer and calibrated threshold.
 
-- **Public Docker image:** [Docker Hub — `jeanmardini/acoustic-anomaly-detection`](https://hub.docker.com/r/jeanmardini/acoustic-anomaly-detection) (repository: [link](https://hub.docker.com/repository/docker/jeanmardini/acoustic-anomaly-detection/general))
-  - `docker pull jeanmardini/acoustic-anomaly-detection:latest`
-  - `docker run --rm -p 8000:8000 jeanmardini/acoustic-anomaly-detection:latest` → UI [http://localhost:8000](http://localhost:8000)
-- **Demo video (~3 min):** can be added as a video file in this repository (e.g. root) or submitted separately per course instructions.
-- **Slides & report (in this repo):** `acoustic_anomaly_detection.pptx`, `project_report.docx` (root)
-
----
-
-## Overview
-
-This project benchmarks acoustic anomaly detection under realistic industrial constraints:
-
-- training on normal audio only
-- source/target domain shift
-- machine-specific scoring and thresholds
-
-The pipeline covers Conv AE, Transformer AE, and BEATs frozen features, then exports deployment-ready scorer artifacts used directly by the API/UI.
-
----
+We compare three approaches, two reconstruction autoencoders and frozen self-supervised audio embeddings, on DCASE 2024 Task 2 and MIMII-DUE. The models are served through a FastAPI web app and a public Docker image.
 
 ## Results
 
-Metric: **AUC-ROC (higher is better)**  
-Source files: `artifacts/dcase/**/evaluation*.json`, `artifacts/mimii/**/evaluation*.json`, `beats_frozen_export/beats_frozen_results.json`
+AUC-ROC (0.5 = random, 1.0 = perfect), best per machine in bold.
 
-### DCASE 2024 Task 2 - Development Set
+### DCASE 2024 Task 2, development set
 
 | Model | ToyCar | ToyTrain | Bearing | Fan | Gearbox | Slider | Valve | **Mean** |
 |---|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
-| Convolutional Autoencoder (best scorer per machine) | 0.531 | 0.488 | 0.630 | 0.599 | 0.575 | 0.551 | 0.496 | 0.553 |
-| Transformer Autoencoder (best scorer per machine) | 0.511 | 0.555 | 0.623 | 0.621 | 0.561 | 0.507 | 0.533 | 0.559 |
-| **BEATs (frozen, AudioSet) + GMM** | **0.504** | **0.709** | **0.609** | **0.618** | **0.776** | **0.654** | **0.597** | **0.638** |
+| Convolutional AE ¹ | **0.531** | 0.488 | **0.630** | 0.599 | 0.575 | 0.551 | 0.496 | 0.553 |
+| Transformer AE ¹ | 0.511 | 0.555 | 0.623 | **0.621** | 0.561 | 0.507 | 0.533 | 0.559 |
+| BEATs (frozen) + GMM | 0.504 | **0.709** | 0.609 | 0.618 | **0.776** | **0.654** | **0.597** | **0.638** |
+
+BEATs + GMM partial AUC (FPR ≤ 0.1): ToyCar 0.037 · ToyTrain 0.167 · Bearing 0.289 · Fan 0.253 · Gearbox 0.297 · Slider 0.054 · Valve 0.098.
 
 ### MIMII-DUE
 
 | Model | Fan | Gearbox | Pump | Slider | Valve | **Mean** |
 |---|:---:|:---:|:---:|:---:|:---:|:---:|
-| **Convolutional Autoencoder (best scorer per machine)** | **0.624** | **0.652** | **0.628** | **0.640** | **0.506** | **0.610** |
-| Transformer Autoencoder (best scorer per machine) | 0.514 | 0.584 | 0.547 | 0.586 | 0.515 | 0.549 |
+| Convolutional AE ¹ | **0.624** | **0.652** | **0.628** | **0.640** | 0.506 | **0.610** |
+| Transformer AE ¹ | 0.514 | 0.584 | 0.547 | 0.586 | **0.515** | 0.549 |
+
+¹ For the autoencoders, each machine uses the best of several scoring methods (reconstruction error, Mahalanobis, GMM, LOF on latents), selected on the evaluation set. These numbers are therefore an optimistic upper bound. BEATs + GMM uses one fixed scorer for every machine, so its results carry no selection bias. BEATs was not run on MIMII-DUE.
+
+### Observations
+
+- Frozen BEATs features with a simple GMM get a mean AUC of 0.638 on DCASE, against about 0.55 for both autoencoders, even with the autoencoders' scorer chosen on the evaluation set. The biggest gain is on Gearbox (+20 points over the Conv AE).
+- No model is best on every machine. ToyCar stays close to chance with all three methods.
+- The Transformer autoencoder did not improve on the convolutional one: same mean on DCASE, lower on MIMII-DUE.
+- pAUC stays below 0.3 for every machine, so the false-alarm rate is still too high for real use without per-machine threshold tuning.
 
 ---
 
 ## Methods
 
-### Stage 1 · Convolutional Autoencoder
+### Features
 
-Reconstruction-based anomaly detection on log-mel spectrograms.
+Audio at 16 kHz → log-mel spectrogram (`n_fft=1024`, `hop=512`, `n_mels=128`), z-score normalised per machine.
 
-- **Features** - log-mel (`n_fft=1024`, `hop=512`, `n_mels=128`), z-score normalized
-- **Model** - symmetric Conv encoder -> bottleneck -> Conv decoder, MSE loss
-- **Scoring** - per-machine reconstruction threshold + scorer calibration
-- **Scripts** - `scripts/train.py`, `scripts/evaluate.py`
+### Stage 1 · Convolutional autoencoder
 
-### Stage 2 · Transformer Autoencoder
+Symmetric conv encoder → bottleneck → conv decoder, trained with MSE on normal clips. Anomaly score = reconstruction error, or a density score (Mahalanobis, GMM, LOF) fitted on the latent codes.
 
-Patch-based self-attention encoder replacing the convolutional backbone.
+### Stage 2 · Transformer autoencoder
 
-- **Architecture** - spectrogram patches -> linear projection -> MHSA -> reconstruction
-- **Scoring** - same evaluation stack as Conv AE (method chosen per machine)
-- **Scripts** - `scripts/train.py`, `scripts/evaluate.py`
+Spectrogram patches → linear projection → multi-head self-attention → reconstruction, with the same scoring stack.
 
-### Stage 3 · BEATs Frozen Features
+### Stage 3 · BEATs frozen features + GMM
 
-Microsoft BEATs pretrained on AudioSet used as a frozen embedding backbone.
+[Microsoft BEATs](https://github.com/microsoft/unilm/tree/master/beats) pretrained on AudioSet, used as a frozen encoder: 768-d embeddings mean-pooled over time, one Gaussian Mixture Model per machine fitted on normal clips. Score = negative log-likelihood; the decision threshold is the 99th percentile of normal scores, exported with the model for deployment.
 
-- **Features** - 768-d embeddings, mean pooled over time
-- **Scorer** - per-machine GMM
-- **Calibration** - percentile thresholds exported for deployment
-- **Scripts** - `scripts/beats_evaluate.py`, `scripts/beats_export_scorers.py`
+### Splits
 
----
+Train/test manifests keep machine type, section and domain for every clip, so domains and sections are never mixed across splits (see the [dataset card](data/README.md)).
 
 ## Datasets
 
-| Dataset | Machine Types | Split | Notes |
-|---|---|---|---|
-| DCASE 2024 Task 2 (dev) | ToyCar, ToyTrain, bearing, fan, gearbox, slider, valve | train / test | Domain shift: source + target |
-| DCASE 2024 (additional) | multiple machine types | train | Extra training data support |
-| MIMII-DUE | fan, gearbox, pump, slider, valve | train / test | Multi-section, source + target domains |
+| Dataset | Machine types | Notes |
+|---|---|---|
+| [DCASE 2024 Task 2](https://dcase.community/challenge2024/task-first-shot-unsupervised-anomalous-sound-detection-for-machine-condition-monitoring) (dev) | ToyCar, ToyTrain, bearing, fan, gearbox, slider, valve | Source + target domains |
+| [DCASE 2024 additional training data](https://zenodo.org/records/11259435) | multiple | Extra normal clips |
+| [MIMII-DUE](https://zenodo.org/records/4740355) | fan, gearbox, pump, slider, valve | Multi-section, source + target domains |
 
-Manifests: `data/processed/manifests/`
+Manifests are in `data/processed/manifests/`; raw audio is not stored in the repo.
 
 ---
 
-## Installation
+## Run with Docker
+
+```bash
+docker run --rm -p 8000:8000 jeanmardini/acoustic-anomaly-detection:latest
+```
+
+Then open http://localhost:8000 for the web UI (upload a clip, pick a machine, get a score and a decision) or http://localhost:8000/docs for the API.
+
+| Endpoint | Method | Description |
+|---|---|---|
+| `/score` | POST | Audio clip (.wav/.flac) + machine type + model → anomaly score, threshold, decision |
+| `/models/catalog` | GET | Available machines and scorers |
+| `/health` | GET | Health check |
+
+Image on Docker Hub: [jeanmardini/acoustic-anomaly-detection](https://hub.docker.com/r/jeanmardini/acoustic-anomaly-detection). A GitHub Actions workflow (`.github/workflows/docker-publish.yml`) can rebuild and publish it on demand once the `DOCKERHUB_USERNAME` and `DOCKERHUB_TOKEN` repository secrets are set.
+
+## Reproduce
 
 ```bash
 git clone https://github.com/Jean-Mardini/acoustic-anomaly-detection.git
 cd acoustic-anomaly-detection
-python -m venv .venv
-# Windows
-.venv\Scripts\activate
-# Linux/macOS
-# source .venv/bin/activate
+python -m venv .venv && source .venv/bin/activate     # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
 ```
 
----
-
-## Docker (Local + Docker Hub)
-
-### Public image (Docker Hub)
-
-Image is published for graders and end users:
-
-- Page: [hub.docker.com/r/jeanmardini/acoustic-anomaly-detection](https://hub.docker.com/r/jeanmardini/acoustic-anomaly-detection)
-- `docker pull jeanmardini/acoustic-anomaly-detection:latest`
-- `docker run --rm -p 8000:8000 jeanmardini/acoustic-anomaly-detection:latest`
-
-### Build and run locally
+Download the datasets into `data/raw/` (layout in [data/README.md](data/README.md)), then build manifests and features:
 
 ```bash
-# Build image
-docker build -t acoustic-anomaly-detection:latest .
-
-# Run container
-docker run --rm -p 8000:8000 acoustic-anomaly-detection:latest
+python scripts/build_manifests.py
+python scripts/preprocess.py
 ```
 
-Open:
-
-- UI: [http://localhost:8000](http://localhost:8000)
-- API docs: [http://localhost:8000/docs](http://localhost:8000/docs)
-
-### Publish manually to Docker Hub
+Autoencoders:
 
 ```bash
-# 1) Login
-docker login
-
-# 2) Tag image (example: jeanmardini on Docker Hub)
-docker tag acoustic-anomaly-detection:latest jeanmardini/acoustic-anomaly-detection:latest
-
-# 3) Push
-docker push jeanmardini/acoustic-anomaly-detection:latest
-```
-
-### Automated publish with GitHub Actions
-
-This repo includes `.github/workflows/docker-publish.yml`.
-
-Set these repository secrets in GitHub:
-
-- `DOCKERHUB_USERNAME`
-- `DOCKERHUB_TOKEN` (Docker Hub access token)
-
-Then push to `main` (or run workflow manually) to build and publish the image automatically.
-
----
-
-## Usage
-
-### Conv AE / Transformer AE
-
-```bash
-# Train single machine
-python scripts/train.py \
-  --machine-types fan \
-  --manifests data/processed/manifests/dcase2024_development.csv \
-  --epochs 50 --early-stopping 8
-
-# Train all DCASE machines
-bash scripts/train_all_dcase.sh
-bash scripts/train_all_dcase_transformer.sh
-
-# Train all MIMII machines
-bash scripts/train_all_mimii.sh
+bash scripts/train_all_dcase.sh                 # Conv AE, all DCASE machines
+bash scripts/train_all_dcase_transformer.sh     # Transformer AE
+bash scripts/train_all_mimii.sh                 # same on MIMII-DUE
 bash scripts/train_all_mimii_transformer.sh
 
-# Evaluate a checkpoint
 python scripts/evaluate.py \
   --checkpoint artifacts/dcase/conv_ae/fan_best_v1/best_model.pt \
   --manifests data/processed/manifests/dcase2024_development.csv
 ```
 
-### BEATs Frozen
+BEATs + GMM: download `BEATs_iter3_plus_AS2M.pt` from the [official BEATs repository](https://github.com/microsoft/unilm/tree/master/beats) into `models/`, then:
 
 ```bash
 python scripts/beats_evaluate.py \
   --beats-ckpt models/BEATs_iter3_plus_AS2M.pt \
   --manifests data/processed/manifests/dcase2024_development.csv \
   --gmm-components 32
-```
-
-### Export Scorers for Deployment
-
-```bash
-python scripts/export_best_scorer_artifacts.py
 
 python scripts/beats_export_scorers.py \
   --manifests data/processed/manifests/dcase2024_development.csv \
@@ -223,91 +153,43 @@ python scripts/beats_export_scorers.py \
   --out-dir beats_frozen_export
 ```
 
----
+Training outputs (checkpoints, per-run `evaluation*.json`) go to `artifacts/`, which is git-ignored. The exported BEATs scorers used by the app are committed in `beats_frozen_export/`.
 
-## Inference
-
-Run the API:
+Run the API locally:
 
 ```bash
 python -m uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 ```
 
-- UI: [http://localhost:8000](http://localhost:8000)
-- Docs: [http://localhost:8000/docs](http://localhost:8000/docs)
-
-Minimal BEATs frozen scorer usage:
-
-```python
-import pickle, json, numpy as np, torch, sys
-sys.path.insert(0, "models")
-from BEATs import BEATs, BEATsConfig
-
-raw = torch.load("models/BEATs_iter3_plus_AS2M.pt", map_location="cpu")
-beats = BEATs(BEATsConfig(raw["cfg"]))
-beats.load_state_dict(raw["model"])
-beats.eval()
-
-with open("beats_frozen_export/gmms/fan.pkl", "rb") as f:
-    gmm = pickle.load(f)
-meta = json.load(open("beats_frozen_export/embeddings_info.json"))
-threshold = meta["machines"]["fan"]["threshold_99"]
-
-# wav: numpy float32 mono waveform at 16kHz
-wav_t = torch.from_numpy(wav).unsqueeze(0)
-pad = torch.zeros(1, wav_t.size(1), dtype=torch.bool)
-with torch.no_grad():
-    feats, _ = beats.extract_features(wav_t, padding_mask=pad)
-emb = feats.mean(dim=1).numpy()
-
-anomaly_score = float(-gmm.score_samples(emb)[0])
-is_anomaly = anomaly_score > threshold
-```
-
 ---
 
-## Project Structure
+## Project structure
 
 ```text
 acoustic-anomaly-detection/
-│
-├── app/                               # FastAPI app + web UI
-├── data/processed/manifests/          # manifest CSVs (train / test splits)
+├── app/                      # FastAPI app + web UI
 ├── src/aad/
-│   ├── config.py                      # AudioConfig, FeatureConfig, WindowConfig
-│   ├── dataset.py                     # manifest loading, FileRecord
-│   ├── preprocess.py                  # audio loading, log-mel, z-score, windowing
-│   ├── model.py                       # ConvAutoencoder, TransformerAutoencoder
-│   └── evaluate_utils.py              # scoring/evaluation helpers
-│
-├── scripts/
-│   ├── train.py
-│   ├── evaluate.py
-│   ├── train_all_dcase.sh
-│   ├── train_all_dcase_transformer.sh
-│   ├── train_all_mimii.sh
-│   ├── train_all_mimii_transformer.sh
-│   ├── beats_evaluate.py
-│   ├── beats_export_scorers.py
-│   └── export_best_scorer_artifacts.py
-│
-├── models/
-│   ├── BEATs.py
-│   ├── backbone.py
-│   └── modules.py
-│
-├── beats_frozen_export/
-│   ├── gmms/
-│   ├── embeddings_info.json
-│   └── beats_frozen_results.json
-│
-└── artifacts/
-    ├── dcase/
-    ├── mimii/
-    └── best_scorer_export_summary.json
+│   ├── config.py             # audio, feature and window configs
+│   ├── dataset.py            # manifest loading
+│   ├── preprocess.py         # audio loading, log-mel, normalisation, windowing
+│   ├── model.py              # ConvAutoencoder, TransformerAutoencoder
+│   └── evaluate_utils.py     # scorers (reconstruction, Mahalanobis, GMM, LOF), metrics
+├── scripts/                  # manifests, preprocessing, training, evaluation, export
+├── models/                   # BEATs model code
+├── beats_frozen_export/      # deployed GMM scorers, thresholds, results
+├── data/
+│   ├── README.md             # dataset card
+│   └── processed/manifests/  # train/test manifests
+├── docs/
+│   ├── report.docx           # project report
+│   └── slides.pptx           # presentation
+├── Dockerfile
+└── .github/workflows/        # Docker Hub publishing
 ```
 
----
+## Team
+
+Jean Mardini (model training) · Marc Khattar · Kristy Tannoury · Angela Nabhan. Faculty of Engineering (ESIB), Université Saint-Joseph de Beyrouth, 2026.
 
 ## License
 

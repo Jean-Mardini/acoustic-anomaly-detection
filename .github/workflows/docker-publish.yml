@@ -1,10 +1,8 @@
 name: Docker Publish
 
 on:
+  # Manual run only (needs DOCKERHUB_USERNAME and DOCKERHUB_TOKEN repository secrets).
   workflow_dispatch:
-  push:
-    branches: ["main"]
-    tags: ["v*.*.*"]
 
 jobs:
   docker:
