@@ -95,7 +95,7 @@ Manifests are in `data/processed/manifests/`; raw audio is not stored in the rep
 
 ## Run with Docker
 
-Scoring needs the pretrained BEATs checkpoint `BEATs_iter3_plus_AS2M.pt`. It is too large for the repo and is not inside the Docker image, so download it first from the [official BEATs repository](https://github.com/microsoft/unilm/tree/master/beats) and put it in a folder, for example `~/beats`. Then:
+Scoring needs the pretrained BEATs checkpoint `BEATs_iter3_plus_AS2M.pt` (345 MB, from [Microsoft BEATs](https://github.com/microsoft/unilm/tree/master/beats)). It is not inside the Docker image, so [download it from the v1.0 release](https://github.com/Jean-Mardini/acoustic-anomaly-detection/releases/download/v1.0/BEATs_iter3_plus_AS2M.pt) and put it in a folder, for example `~/beats`. Then:
 
 ```bash
 docker run --rm -p 8000:8000 \
@@ -143,7 +143,7 @@ python scripts/evaluate.py \
   --manifests data/processed/manifests/dcase2024_development.csv
 ```
 
-BEATs + GMM: download `BEATs_iter3_plus_AS2M.pt` from the [official BEATs repository](https://github.com/microsoft/unilm/tree/master/beats) into `models/`, then:
+BEATs + GMM: download [`BEATs_iter3_plus_AS2M.pt`](https://github.com/Jean-Mardini/acoustic-anomaly-detection/releases/download/v1.0/BEATs_iter3_plus_AS2M.pt) into `models/`, then:
 
 ```bash
 python scripts/beats_evaluate.py \
@@ -159,7 +159,7 @@ python scripts/beats_export_scorers.py \
 
 Training outputs (checkpoints, per-run `evaluation*.json`) go to `artifacts/`, which is git-ignored. The exported BEATs scorers used by the app are committed in `beats_frozen_export/`.
 
-Run the API locally (with `BEATs_iter3_plus_AS2M.pt` in `models/`):
+Run the API locally. If `models/BEATs_iter3_plus_AS2M.pt` is missing, the app downloads it from the v1.0 release the first time a clip is scored:
 
 ```bash
 python -m uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
