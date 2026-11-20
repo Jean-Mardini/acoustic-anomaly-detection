@@ -96,11 +96,16 @@ Manifests are in `data/processed/manifests/`; raw audio is not stored in the rep
 
 ## Run with Docker
 
+Scoring needs the pretrained BEATs checkpoint `BEATs_iter3_plus_AS2M.pt`. It is too large for the repo and is not inside the Docker image, so download it first from the [official BEATs repository](https://github.com/microsoft/unilm/tree/master/beats) and put it in a folder, for example `~/beats`. Then:
+
 ```bash
-docker run --rm -p 8000:8000 jeanmardini/acoustic-anomaly-detection:latest
+docker run --rm -p 8000:8000 \
+  -v ~/beats:/ckpt \
+  -e BEATS_CHECKPOINT=/ckpt/BEATs_iter3_plus_AS2M.pt \
+  jeanmardini/acoustic-anomaly-detection:latest
 ```
 
-Then open http://localhost:8000 for the web UI (upload a clip, pick a machine, get a score and a decision) or http://localhost:8000/docs for the API.
+Open http://localhost:8000 for the web UI (upload a .wav clip, pick a machine, get a score and a decision) or http://localhost:8000/docs for the API. Without the checkpoint the app still starts, but `/score` returns an error. The app serves the BEATs + GMM scorers; the autoencoder checkpoints are not included in the repo.
 
 | Endpoint | Method | Description |
 |---|---|---|
@@ -155,7 +160,7 @@ python scripts/beats_export_scorers.py \
 
 Training outputs (checkpoints, per-run `evaluation*.json`) go to `artifacts/`, which is git-ignored. The exported BEATs scorers used by the app are committed in `beats_frozen_export/`.
 
-Run the API locally:
+Run the API locally (with `BEATs_iter3_plus_AS2M.pt` in `models/`):
 
 ```bash
 python -m uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
