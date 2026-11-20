@@ -1,62 +1,33 @@
-# Dataset Card (Step 1.4)
+# Data
 
-This document defines what each dataset folder means before training.
-It helps avoid split leakage and domain mixing mistakes.
-
-## Target Datasets
-
-- DCASE 2024 Task 2
-- DCASE 2024 additional training data
-- MIMII DUE
-
-## Recommended Local Layout
+Raw audio is not stored in the repo. Download the three datasets and unzip them so the folders look like this:
 
 ```text
-data/
-  raw/
-    dcase2024/
-      train/
-      dev/
-      test/
-    dcase2024_additional/
-      train/
-    mimii_due/
-      train/
-      test/
-  processed/
-    manifests/
-    features/
+data/raw/
+  dcase2024_development/unpacked/<machine>/{train,test}/*.wav
+  dcase2024_additional/unpacked/<machine>/train/*.wav
+  mimii_due/unpacked/<machine>/{train,source_test,target_test}/*.wav
 ```
 
-## Folder Meaning Contract
+- DCASE 2024 Task 2 development set and additional training data: https://dcase.community/challenge2024/task-first-shot-unsupervised-anomalous-sound-detection-for-machine-condition-monitoring
+- MIMII-DUE: https://zenodo.org/records/4740355
 
-- `train/`: clips used for model fitting only.
-- `dev/`: clips used for threshold/calibration only.
-- `test/`: clips used only for final evaluation.
-- `source/`: recordings from source domain conditions.
-- `target/`: recordings from target domain conditions.
-- `normal/`: expected healthy machine behavior.
-- `abnormal` or `anomaly`: anomalous behavior clips (when provided).
+Then run `python scripts/build_manifests.py`. It reads the file names (for example `section_00_source_test_anomaly_0001_....wav`) and writes one CSV per dataset to `data/processed/manifests/` with these columns:
 
-## Required Metadata Fields (per clip)
+| Column | Meaning |
+|---|---|
+| `dataset_name` | `dcase2024_development`, `dcase2024_additional` or `mimii_due` |
+| `machine_type` | fan, gearbox, valve, ToyCar, ... |
+| `section` | `section_00`, `section_01`, ... |
+| `domain` | `source` or `target` |
+| `split` | `train` or `test` |
+| `label` | `normal`, `anomaly` or `unknown` |
+| `audio_path` | path to the clip |
 
-- `dataset_name` (e.g., dcase2024, mimii_due)
-- `machine_type` (fan, pump, valve, etc.)
-- `section` (section_00, section_01, ...)
-- `domain` (source or target)
-- `split` (train, dev, test)
-- `label` (normal, abnormal, or unknown)
-- `audio_path` (absolute or project-relative path)
+The manifests in the repo were built on another machine, so their `audio_path` values are absolute paths from that machine. Rebuild them after downloading the data.
 
-## Ingestion Safety Rules
+Rules we followed:
 
-- Never tune thresholds on `test/`.
-- Never mix `test/` into training features.
-- Keep domain and section fields in manifests.
-- Track clip duration and sample rate for every clip.
-- Accept only known audio formats (`.wav`, `.flac`) unless explicitly updated.
-
-## When to place dataset files
-
-Place raw dataset files under `data/raw/...` before Step 2 feature extraction.
-You can start placing files now, but we will parse them in the next ingestion step.
+- Training uses normal clips from the `train` split only.
+- Domain and section are kept for every clip so source and target clips are never mixed up between splits.
+- Thresholds for the deployed BEATs scorers are computed from normal training clips (99th percentile), not from test clips.

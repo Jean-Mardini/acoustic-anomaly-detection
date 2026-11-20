@@ -8,7 +8,6 @@
 ![DCASE](https://img.shields.io/badge/DCASE-2024_Task_2-green)
 ![MIMII](https://img.shields.io/badge/MIMII-DUE-purple)
 ![Docker](https://img.shields.io/badge/Docker-Hub-2496ED?logo=docker)
-![License](https://img.shields.io/badge/License-MIT-yellow)
 
 Detecting faulty industrial machines from their sound, training on normal audio only and testing under changed recording conditions.
 
@@ -56,7 +55,7 @@ BEATs + GMM partial AUC (FPR ≤ 0.1): ToyCar 0.037 · ToyTrain 0.167 · Bearing
 - Frozen BEATs features with a simple GMM get a mean AUC of 0.638 on DCASE, against about 0.55 for both autoencoders, even with the autoencoders' scorer chosen on the evaluation set. The biggest gain is on Gearbox (+20 points over the Conv AE).
 - No model is best on every machine. ToyCar stays close to chance with all three methods.
 - The Transformer autoencoder did not improve on the convolutional one: same mean on DCASE, lower on MIMII-DUE.
-- pAUC stays below 0.3 for every machine, so the false-alarm rate is still too high for real use without per-machine threshold tuning.
+- pAUC stays below 0.3 for every machine: detection at low false-alarm rates is still weak, which would matter in a real deployment.
 
 ---
 
@@ -196,6 +195,3 @@ acoustic-anomaly-detection/
 
 Jean Mardini (model training) · Marc Khattar · Kristy Tannoury · Angela Nabhan. Faculty of Engineering (ESIB), Université Saint-Joseph de Beyrouth, 2026.
 
-## License
-
-MIT
